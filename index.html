@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Tabs und Noten mit der Tastatur schreiben und abspielen – kompatibel mit Guitar Pro 5." />
+    <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#18181a" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <title>Tabwriter</title>
+    <style>
+      /* boot skeleton: shown instantly, before scripts and the main stylesheet load */
+      #boot {
+        --b-win: #ececec; --b-chrome: #e3e3e3; --b-paper: #fff; --b-sep: rgba(0,0,0,.1); --b-sk: rgba(0,0,0,.07); --b-sk2: rgba(0,0,0,.035);
+        position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; background: var(--b-win);
+        font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; transition: opacity .25s ease;
+      }
+      html.bootDark #boot { --b-win: #1e1e1e; --b-chrome: #2a2a2c; --b-paper: #1f1f21; --b-sep: rgba(255,255,255,.09); --b-sk: rgba(255,255,255,.08); --b-sk2: rgba(255,255,255,.04); }
+      #boot *, #boot { box-sizing: border-box; }
+      #boot.out { opacity: 0; pointer-events: none; }
+      #boot .bTop { height: 56px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 92px; background: var(--b-chrome); border-bottom: .5px solid var(--b-sep); }
+      #boot .bRow { flex: 1; display: flex; min-height: 0; }
+      #boot .bSide { width: 248px; flex: none; background: var(--b-chrome); border-right: .5px solid var(--b-sep); padding: 22px 16px; display: flex; flex-direction: column; gap: 14px; }
+      #boot .bInsp { width: 288px; flex: none; background: var(--b-chrome); border-left: .5px solid var(--b-sep); padding: 22px 18px; display: flex; flex-direction: column; gap: 16px; }
+      #boot .bMain { flex: 1; padding: 28px 32px; overflow: hidden; }
+      #boot .bPaper { max-width: 840px; height: 100%; margin: 0 auto; background: var(--b-paper); border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 0 0 .5px var(--b-sep); padding: 48px 44px; display: flex; flex-direction: column; gap: 46px; }
+      #boot .sk { border-radius: 6px; background: linear-gradient(90deg, var(--b-sk) 0%, var(--b-sk2) 40%, var(--b-sk) 80%) 0 0 / 300% 100%; animation: bShimmer 1.4s ease-in-out infinite; }
+      #boot .staff { height: 64px; background: repeating-linear-gradient(to bottom, var(--b-sk) 0 1px, transparent 1px 12.6px); border-radius: 0; animation: none; opacity: .9; }
+      #boot .bLogo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 12px; color: #8e8e93; font-weight: 500; }
+      #boot .bLogo img { width: 64px; height: 64px; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+      #boot .bSpin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--b-sk); border-top-color: #8e8e93; animation: bSpin .8s linear infinite; }
+      @keyframes bShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+      @keyframes bSpin { to { transform: rotate(360deg); } }
+      @media (max-width: 1000px) { #boot .bInsp { display: none; } }
+    </style>
+    <script>
+      try {
+        var th = (JSON.parse(localStorage.getItem('tabwriter.prefs') || '{}').theme) || 'auto';
+        if (th === 'dark' || (th === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('bootDark');
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="boot" aria-hidden="true">
+      <div class="bTop">
+        <div class="sk" style="width:150px;height:22px"></div>
+        <div class="sk" style="width:440px;height:40px;border-radius:10px"></div>
+        <div class="sk" style="width:170px;height:26px"></div>
+      </div>
+      <div class="bRow">
+        <div class="bSide">
+          <div class="sk" style="width:60px;height:10px"></div>
+          <div class="sk" style="height:36px"></div>
+          <div class="sk" style="height:36px"></div>
+          <div class="sk" style="height:36px;width:80%"></div>
+        </div>
+        <div class="bMain">
+          <div class="bPaper">
+            <div class="sk" style="width:40%;height:22px;align-self:center"></div>
+            <div class="sk staff"></div>
+            <div class="sk staff"></div>
+            <div class="sk staff"></div>
+          </div>
+        </div>
+        <div class="bInsp">
+          <div class="sk" style="height:28px"></div>
+          <div class="sk" style="height:12px;width:40%"></div>
+          <div class="sk" style="height:24px"></div>
+          <div class="sk" style="height:24px"></div>
+          <div class="sk" style="height:12px;width:40%"></div>
+          <div class="sk" style="height:24px"></div>
+        </div>
+      </div>
+      <div class="bLogo"><img src="./icon-192.png" alt="" /><div class="bSpin"></div></div>
+    </div>
+    <header id="top" data-tauri-drag-region>
+      <div class="tbGroup tbLeft" data-tauri-drag-region>
+        <button id="leftBtn" class="tbtn on" title="Spuren ein-/ausblenden" data-key="⌃⌘S"><i data-icon="sidebarLeft"></i></button>
+        <div class="titleBlock" data-tauri-drag-region>
+          <input id="title" spellcheck="false" aria-label="Titel" title="Titel bearbeiten" />
+          <div id="subtitle" data-tauri-drag-region></div>
+        </div>
+      </div>
+
+      <div id="lcd">
+        <button id="play" class="lcdBtn" title="Wiedergabe starten" data-key="Leertaste"><i data-icon="play"></i></button>
+        <button id="stopBtn" class="lcdBtn" title="Stop" data-key="Esc"><i data-icon="stop"></i></button>
+        <button id="loopBtn" class="lcdBtn toggle" title="Schleife (Auswahl oder ganzer Song)" data-key="⌘L"><i data-icon="loop"></i></button>
+        <button id="metroBtn" class="lcdBtn toggle" title="Metronom" data-key="⌘K"><i data-icon="metronome"></i></button>
+        <div class="lcdScreen">
+          <div class="lcdCell" title="Position: Takt und Schlag"><span id="lcdPos" class="big">1 · 1</span><span class="cap">Position</span></div>
+          <div class="lcdCell" title="Notenwert (+ / −)"><span id="lcdDur" class="big">1/4</span><span class="cap">Note</span></div>
+          <div class="lcdCell" id="lcdRowCell" title="Saite (↑ / ↓)"><span id="lcdRow" class="big">E</span><span class="cap" id="lcdRowCap">Saite 1</span></div>
+          <div class="lcdCell" id="lcdSigCell" title="Taktart ändern (M)"><span id="lcdSig" class="big">4/4</span><span class="cap" id="lcdFill">Takt</span></div>
+          <div class="lcdCell" id="speedCell" title="Wiedergabe-Geschwindigkeit"><span id="lcdSpeed" class="big">100 %</span><span class="cap">Speed</span></div>
+          <label class="lcdCell" title="Tempo"><input id="tempo" type="number" min="20" max="400" class="big" /><span class="cap">bpm</span></label>
+        </div>
+      </div>
+
+      <div class="tbGroup tbRight" data-tauri-drag-region>
+        <div class="seg" role="group" aria-label="Ansicht">
+          <button id="oneBtn" class="on" title="Eine Spur"><i data-icon="oneTrack"></i></button>
+          <button id="viewBtn" title="Alle Spuren" data-key="⌘E"><i data-icon="allTracks"></i></button>
+        </div>
+        <button id="ovBtn" class="tbtn" title="Übersicht (Spuren × Takte)" data-key="⌘B"><i data-icon="barIcon"></i></button>
+        <button id="panelBtn" class="tbtn on" title="Inspektor ein-/ausblenden" data-key="⌘I"><i data-icon="sidebarRight"></i></button>
+        <button id="menuBtn" class="tbtn" title="Mehr"><i data-icon="ellipsis"></i></button>
+      </div>
+    </header>
+
+    <div id="menu" class="pop menuPop hidden">
+      <button data-act="library"><i data-icon="books"></i><span>Bibliothek</span><kbd>⇧⌘L</kbd></button>
+      <button data-act="new"><i data-icon="docPlus"></i><span>Neu</span><kbd>⌘N</kbd></button>
+      <button data-act="open"><i data-icon="folder"></i><span>Öffnen …</span><kbd>⌘O</kbd></button>
+      <hr />
+      <button data-act="save"><i data-icon="save"></i><span>Speichern</span><kbd>⌘S</kbd></button>
+      <button data-act="saveas"><i data-icon="doc"></i><span>Speichern unter …</span><kbd>⇧⌘S</kbd></button>
+      <hr />
+      <button data-act="export-gp"><i data-icon="share"></i><span>Als Guitar Pro 7 exportieren …</span></button>
+      <button data-act="export-midi"><i data-icon="pianokeys"></i><span>Als MIDI exportieren …</span></button>
+      <button data-act="export-wav"><i data-icon="waveform"></i><span>Als Audio exportieren …</span></button>
+      <button data-act="print"><i data-icon="printer"></i><span>Drucken / PDF …</span><kbd>⌘P</kbd></button>
+      <hr />
+      <button data-act="transpose"><i data-icon="transpose"></i><span>Transponieren …</span><kbd>⌘T</kbd></button>
+      <button data-act="meta"><i data-icon="textInfo"></i><span>Song-Infos …</span></button>
+      <button data-act="prefs"><i data-icon="gear"></i><span>Einstellungen …</span><kbd>⌘,</kbd></button>
+      <hr />
+      <button data-act="help"><i data-icon="keyboard"></i><span>Tastenkürzel</span><kbd>?</kbd></button>
+      <button data-act="onboarding"><i data-icon="sparkles"></i><span>Erste Schritte</span></button>
+      <button data-act="about"><i data-icon="info"></i><span>Über Tabwriter</span></button>
+    </div>
+
+    <div id="trackMenu" class="pop menuPop hidden"></div>
+
+    <div id="notice" class="hidden">
+      <i data-icon="info"></i>
+      <span id="noticeText"></span>
+      <span class="spacer"></span>
+      <span id="noticeActions"></span>
+      <button id="noticeClose" class="tbtn small" title="Schließen"><i data-icon="xmark" data-size="12"></i></button>
+    </div>
+
+    <div id="work">
+      <aside id="left">
+        <div class="sideHead">
+          <span>Spuren</span>
+          <button id="addTrack" class="tbtn small" title="Spur hinzufügen"><i data-icon="plus"></i></button>
+        </div>
+        <div id="trackList"></div>
+        <div class="sideHead secHead">
+          <span>Abschnitte</span>
+          <button id="addSection" class="tbtn small" title="Abschnitt beim aktuellen Takt setzen"><i data-icon="plus"></i></button>
+        </div>
+        <div id="sectionList"></div>
+      </aside>
+
+      <main id="scroll">
+        <div id="sheet">
+          <div id="at"></div>
+          <div id="cursor"><div id="cursorRow"></div></div>
+        </div>
+      </main>
+
+      <aside id="right"></aside>
+    </div>
+
+    <section id="overview" class="hidden" aria-label="Übersicht">
+      <div class="ovGrip"></div>
+      <div class="ovTop">
+        <span class="ovTitle">Übersicht</span>
+        <span class="spacer"></span>
+        <button id="ovClose" class="tbtn small" title="Übersicht schließen" data-key="⌘B"><i data-icon="xmark" data-size="12"></i></button>
+      </div>
+      <div id="ovContent" class="ovBody"></div>
+    </section>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <div id="help" class="overlay hidden">
+      <div class="card">
+        <h2>Tastenkürzel</h2>
+        <div class="cols">
+          <section>
+            <h3>Navigation</h3>
+            <p><kbd>←</kbd><kbd>→</kbd> Schlag</p>
+            <p><kbd>↑</kbd><kbd>↓</kbd> Saite</p>
+            <p><kbd>⌥←</kbd><kbd>⌥→</kbd> Takt</p>
+            <p><kbd>⌘↑</kbd><kbd>⌘↓</kbd> Anfang / Ende</p>
+            <p><kbd>Tab</kbd> nächste Spur</p>
+            <p><kbd>⌘E</kbd> alle Spuren / eine Spur</p>
+            <p><kbd>⌘I</kbd> Spur-Einstellungen</p>
+            <p><kbd>⇧⌘L</kbd> Bibliothek · <kbd>⌘B</kbd> Übersicht</p>
+            <p><kbd>⌘+</kbd><kbd>⌘-</kbd> Zoom</p>
+            <h3>Abspielen</h3>
+            <p><kbd>Leertaste</kbd> Play / Pause</p>
+            <p><kbd>Esc</kbd> Stop</p>
+            <p><kbd>⌘L</kbd> Schleife · <kbd>⌘K</kbd> Metronom</p>
+          </section>
+          <section>
+            <h3>Eingabe</h3>
+            <p><kbd>0</kbd>–<kbd>9</kbd> Bund (2× schnell = 2-stellig)</p>
+            <p><kbd>+</kbd> kürzer · <kbd>-</kbd> länger</p>
+            <p><kbd>.</kbd> punktiert · <kbd>T</kbd> Triole</p>
+            <p><kbd>R</kbd> Pause</p>
+            <p><kbd>⌫</kbd> Note löschen · <kbd>⇧⌫</kbd> Schlag löschen</p>
+            <p><kbd>I</kbd> Schlag einfügen</p>
+            <p><kbd>⇧↑</kbd><kbd>⇧↓</kbd> Bund ±1</p>
+            <p>Drums: <kbd>X</kbd> / <kbd>↵</kbd> Schlag setzen</p>
+            <h3>Effekte</h3>
+            <p><kbd>L</kbd> Haltebogen · <kbd>H</kbd> Hammer/Pull</p>
+            <p><kbd>S</kbd> Slide · <kbd>U</kbd> Bend · <kbd>V</kbd> Vibrato</p>
+            <p><kbd>P</kbd> Palm Mute · <kbd>X</kbd> Dead Note</p>
+            <p><kbd>G</kbd> Ghost · <kbd>A</kbd> Akzent · <kbd>N</kbd> Let Ring</p>
+          </section>
+          <section>
+            <h3>Takte</h3>
+            <p><kbd>B</kbd> Takt einfügen · <kbd>⇧B</kbd> Takt löschen</p>
+            <p><kbd>M</kbd> Taktart</p>
+            <p><kbd>W</kbd> Wdh. Anfang · <kbd>⇧W</kbd> Wdh. Ende</p>
+            <p><kbd>⌘T</kbd> Transponieren · <kbd>⇧↑</kbd><kbd>⇧↓</kbd> Auswahl ±1</p>
+            <h3>Auswahl</h3>
+            <p><kbd>⇧←</kbd><kbd>⇧→</kbd> markieren · <kbd>⇧⌥←</kbd><kbd>⇧⌥→</kbd> taktweise</p>
+            <p><kbd>⇧</kbd>+Klick markieren · <kbd>⌘A</kbd> alles</p>
+            <p><kbd>⌘C</kbd> Kopieren · <kbd>⌘X</kbd> Ausschneiden</p>
+            <p><kbd>⌘V</kbd> Einfügen · <kbd>⇧⌘V</kbd> Takte einfügen (nicht überschreiben)</p>
+            <p><kbd>⌫</kbd> Auswahl löschen</p>
+            <p><kbd>⌘Z</kbd> Rückgängig · <kbd>⇧⌘Z</kbd> Wiederholen</p>
+            <h3>Datei</h3>
+            <p><kbd>⌘S</kbd> Speichern · <kbd>⌘O</kbd> Öffnen · <kbd>⌘P</kbd> Drucken</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="library" class="hidden" data-tauri-drag-region>
+      <div class="libWrap">
+        <div class="libHead">
+          <img src="./icon-192.png" alt="" width="56" height="56" />
+          <div>
+            <h1>Tabwriter</h1>
+            <div class="libLead">Was möchtest du schreiben?</div>
+          </div>
+          <span class="spacer"></span>
+          <button id="libClose" class="tbtn" title="Schließen" data-key="Esc"><i data-icon="xmark"></i></button>
+        </div>
+        <div id="libRecover" class="recover hidden">
+          <i data-icon="restore" data-size="20"></i>
+          <div>
+            <div class="recTitle">Nicht gespeicherte Änderungen gefunden</div>
+            <div id="libRecoverSub" class="recSub"></div>
+          </div>
+          <span class="spacer"></span>
+          <button id="recDiscard" class="btn">Verwerfen</button>
+          <button id="recRestore" class="btn primary">Wiederherstellen</button>
+        </div>
+        <div class="libActions">
+          <button id="libNew" class="tile" title="Neuer Song" data-key="⌘N"><span class="tileIcon"><i data-icon="docPlus" data-size="26"></i></span><span>Neuer Song</span></button>
+          <button id="libOpen" class="tile" title="Datei öffnen" data-key="⌘O"><span class="tileIcon"><i data-icon="folder" data-size="26"></i></span><span>Öffnen …</span></button>
+          <button id="libDemo" class="tile" title="Demo-Song öffnen"><span class="tileIcon"><i data-icon="music" data-size="26"></i></span><span>Demo-Song</span></button>
+        </div>
+        <h2 class="libSection">Zuletzt bearbeitet</h2>
+        <div id="libList"></div>
+      </div>
+    </div>
+
+    <div id="meta" class="overlay hidden">
+      <form class="card meta">
+        <h2>Song-Infos</h2>
+        <div id="metaFields"></div>
+        <div class="row">
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="metaCancel">Abbrechen</button>
+          <button type="submit" class="btn primary">Übernehmen</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="prefsDlg" class="overlay hidden">
+      <form class="card prefs">
+        <h2>Einstellungen</h2>
+        <div class="group">
+          <label class="grow"><span>Sprache</span>
+            <span class="popup"><select name="lang">
+              <option value="auto">Automatisch</option>
+              <option value="de">Deutsch</option>
+              <option value="en">English</option>
+            </select></span>
+          </label>
+          <label class="grow"><span>Erscheinungsbild</span>
+            <span class="popup"><select name="theme">
+              <option value="auto">Automatisch</option>
+              <option value="light">Hell</option>
+              <option value="dark">Dunkel</option>
+            </select></span>
+          </label>
+        </div>
+        <div class="group">
+          <label class="grow"><span>Notenansicht</span>
+            <span class="popup"><select name="notation">
+              <option value="both">Noten + Tabs</option>
+              <option value="tab">Nur Tabs</option>
+              <option value="score">Nur Noten</option>
+            </select></span>
+          </label>
+          <label class="grow"><span>Zoom</span>
+            <span class="zoomRow"><input name="zoom" type="range" min="60" max="160" step="10" /><span id="zoomVal"></span></span>
+          </label>
+        </div>
+        <div class="group">
+          <label class="grow"><span>Töne beim Tippen vorspielen</span><input type="checkbox" class="switch" name="notePreview" /></label>
+          <label class="grow"><span>Automatisch zwischenspeichern</span><input type="checkbox" class="switch" name="autosave" /></label>
+        </div>
+        <div class="group">
+          <label class="grow"><span>Volle Takte automatisch umbrechen</span><input type="checkbox" class="switch" name="autoReflow" /></label>
+          <label class="grow"><span>Einzählen vor dem Abspielen</span><input type="checkbox" class="switch" name="countIn" /></label>
+        </div>
+        <div class="row">
+          <span class="spacer"></span>
+          <button type="submit" class="btn primary">Fertig</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="aboutDlg" class="overlay hidden">
+      <div class="card about">
+        <img src="./icon-192.png" alt="" width="72" height="72" />
+        <h2>Tabwriter</h2>
+        <div class="ver" id="aboutVersion"></div>
+        <p class="lead">Tabs und Noten mit der Tastatur schreiben und abspielen.</p>
+        <h3>Verwendete Open-Source-Komponenten</h3>
+        <ul class="lic">
+          <li><b>alphaTab</b> – Notensatz, Wiedergabe, Import/Export · MPL-2.0 · <a href="https://github.com/CoderLine/alphaTab" target="_blank" rel="noopener">Quellcode</a> · <a href="./licenses/alphaTab-MPL-2.0.txt" target="_blank">Lizenz</a></li>
+          <li><b>Bravura</b> (Steinberg) – Notenschrift · SIL Open Font License 1.1 · <a href="./licenses/Bravura-OFL.txt" target="_blank">Lizenz</a></li>
+          <li><b>Sonivox</b> General-MIDI-Soundfont · Apache-2.0 · <a href="./licenses/Sonivox-Apache-2.0.txt" target="_blank">Lizenz</a></li>
+          <li><b>Tauri</b> – Desktop-App · MIT / Apache-2.0</li>
+        </ul>
+        <p class="small">Guitar Pro ist eine Marke von Arobas Music. Tabwriter ist ein unabhängiges Projekt und nicht mit Arobas Music verbunden.</p>
+        <div class="row">
+          <span class="spacer"></span>
+          <button id="aboutClose" class="btn primary">Schließen</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="onboard" class="overlay hidden">
+      <div class="card onboard">
+        <div id="obSlides">
+          <section>
+            <div class="obArt"><i data-icon="keyboard" data-size="52"></i></div>
+            <h2>Willkommen bei Tabwriter</h2>
+            <p>Tabs und Noten schreibst du komplett mit der Tastatur – wie in Guitar Pro 5.</p>
+          </section>
+          <section>
+            <div class="obArt"><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></div>
+            <h2>Bewegen</h2>
+            <p>Pfeiltasten wählen Schlag und Saite. Mit <kbd>⌥</kbd> springst du taktweise.</p>
+          </section>
+          <section>
+            <div class="obArt"><kbd>5</kbd><kbd>+</kbd><kbd>-</kbd></div>
+            <h2>Eintippen</h2>
+            <p>Zahl tippen = Bund. <kbd>+</kbd>/<kbd>-</kbd> ändert die Notenlänge, <kbd>R</kbd> setzt eine Pause. Effekte gehen über Buchstaben, z.B. <kbd>H</kbd> Hammer-On.</p>
+          </section>
+          <section>
+            <div class="obArt"><kbd>Leertaste</kbd></div>
+            <h2>Anhören</h2>
+            <p>Leertaste spielt ab der Cursor-Position. Alle Kürzel findest du jederzeit mit <kbd>?</kbd>.</p>
+          </section>
+        </div>
+        <div class="obDots" id="obDots"></div>
+        <div class="row">
+          <button type="button" class="btn" id="obDemo"><i data-icon="music" data-size="14"></i> Demo-Song öffnen</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="obBack">Zurück</button>
+          <button type="button" class="btn primary" id="obNext">Weiter</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="transDlg" class="overlay hidden">
+      <form class="card trans">
+        <h2>Transponieren</h2>
+        <div class="stepper">
+          <button type="button" class="btn" id="trDown" title="Halbton tiefer"><i data-icon="minus"></i></button>
+          <div class="stepVal"><span id="trVal">+1</span><span class="cap" id="trCap">Halbton</span></div>
+          <button type="button" class="btn" id="trUp" title="Halbton höher"><i data-icon="plus"></i></button>
+        </div>
+        <div class="seg wideSeg" id="trScope">
+          <button type="button" data-scope="selection">Auswahl</button>
+          <button type="button" data-scope="track">Spur</button>
+          <button type="button" data-scope="song">Alle Spuren</button>
+        </div>
+        <p class="hint">Noten bleiben auf ihrer Saite, solange der Bund passt.</p>
+        <div class="row">
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="trCancel">Abbrechen</button>
+          <button type="submit" class="btn primary">Transponieren</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="progressDlg" class="overlay hidden">
+      <div class="card small">
+        <label id="progressLabel"></label>
+        <div class="bar"><div id="progressBar"></div></div>
+        <div class="row">
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="progressCancel">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="prompt" class="overlay hidden">
+      <form class="card small">
+        <label id="promptLabel"></label>
+        <input id="promptInput" spellcheck="false" />
+      </form>
+    </div>
+
+    <input id="fileInput" type="file" accept=".gp5,.gp4,.gp3,.gp,.gpx,.xml,.musicxml" hidden />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

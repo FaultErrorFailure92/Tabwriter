@@ -1,0 +1,26 @@
+{
+  "name": "tabwriter",
+  "version": "1.0.0",
+  "description": "Tabs und Noten mit der Tastatur schreiben – kompatibel mit Guitar Pro 5",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "tauri": "tauri",
+    "preview": "vite preview",
+    "release": "tauri build --config src-tauri/tauri.release.conf.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@coderline/alphatab": "^1.8.4"
+  },
+  "devDependencies": {
+    "@coderline/alphatab-vite": "^1.8.4",
+    "@tauri-apps/cli": "^2.12.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.7",
+    "vite-plugin-pwa": "^2.0.0"
+  },
+  "type": "module",
+  "private": "true"
+}

@@ -1,0 +1,2216 @@
+import './style.css';
+import * as alphaTab from '@coderline/alphatab';
+import { prefs, setPrefs, isDark } from './prefs';
+import { renderOverview } from './overview';
+import { initLang, t, translateDom, currentLang } from './i18n';
+import { Editor } from './editor';
+import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
+import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV } from './io';
+import { listRecent, addRecent, removeRecent, cachedBytes, relTime, dbGet, dbPut, dbDelete, type RecentEntry } from './library';
+import { exportMidi } from './midi';
+import { writeGp5 } from './gp5writer';
+import { renderWav } from './wav';
+import { printScore } from './print';
+import { buildDemo } from './demo';
+import { tuningToText, parseTuning, tuningPresets, findPresetName, noteName } from './tuning';
+import { GM_GROUPS, gmName } from './gm';
+import { setupMenu, guardClose, closeWindow, onOpenFiles, checkUpdate, isDesktop, isMac, setWindowTheme, type Action } from './tauri';
+import { checkBrowser } from './compat';
+import { icon, hydrateIcons, type IconName } from './icons';
+import { installTooltips } from './tooltip';
+import { trackKind } from './model';
+
+declare const __APP_VERSION__: string;
+
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif';
+
+// ---------------- language + static texts ----------------
+initLang(prefs().lang);
+hydrateIcons();
+translateDom();
+installTooltips();
+if (isDesktop()) document.body.classList.add('tauri');
+if (isDesktop() && isMac()) document.documentElement.classList.add('vibrancy');
+// Windows / Linux: show Ctrl/Alt/Shift instead of the Mac key symbols
+if (!isMac()) {
+  const pc = (x: string) => x.replace(/⌃⌘/g, 'Ctrl+Alt+').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+').replace(/⌃/g, 'Ctrl+');
+  document.querySelectorAll<HTMLElement>('kbd').forEach((k) => { if (/[⌘⌥⇧⌃]/.test(k.textContent ?? '')) k.textContent = pc(k.textContent!); });
+  document.querySelectorAll<HTMLElement>('[data-key]').forEach((k) => { k.dataset.key = pc(k.dataset.key!); });
+}
+
+// ---------------- alphaTab setup ----------------
+const settings = new alphaTab.Settings();
+settings.core.engine = 'svg';
+settings.core.fontDirectory = './font/';
+settings.player.soundFont = './soundfont/sonivox.sf2';
+settings.importer.encoding = 'windows-1252';
+settings.core.logLevel = alphaTab.LogLevel.Warning;
+settings.display.layoutMode = alphaTab.LayoutMode.Page;
+settings.display.scale = prefs().zoom;
+settings.display.padding = [30, 30, 30, 30] as any;
+settings.player.playerMode = alphaTab.PlayerMode.EnabledAutomatic;
+settings.player.enableCursor = true;
+settings.player.outputMode = alphaTab.PlayerOutputMode.WebAudioScriptProcessor;
+settings.player.enableAnimatedBeatCursor = true;
+settings.player.scrollElement = $('scroll');
+settings.player.scrollMode = alphaTab.ScrollMode.Continuous;
+settings.notation.rhythmMode = alphaTab.TabRhythmMode.Hidden;
+settings.notation.elements.set(alphaTab.NotationElement.EffectDynamics, false);
+settings.notation.elements.set(alphaTab.NotationElement.TrackNames, false);
+applyThemeToSettings(settings);
+applyNotationView(settings);
+applySansFonts(settings);
+
+const api = new alphaTab.AlphaTabApi($('at'), settings);
+const editor = new Editor(createEmptyScore(), api.settings);
+editor.autoReflow = prefs().autoReflow;
+
+type Format = 'gp5' | 'gp';
+let fileName = t('Neuer Song');
+let saveHandle: unknown = null;
+let format: Format = 'gp5';
+let renderPending = false;
+let playing = false;
+let playedBeat: alphaTab.model.Beat | null = null;
+let multiView = false;
+
+// ---------------- theme / zoom / notation view ----------------
+function rgb(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  return new alphaTab.model.Color((n >> 16) & 255, (n >> 8) & 255, n & 255, 255);
+}
+
+function applyThemeToSettings(s: alphaTab.Settings) {
+  const dark = isDark();
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  { const th = prefs().theme; void setWindowTheme(th === 'auto' ? null : th); }
+  const r = s.display.resources;
+  const ink = dark ? '#ececee' : '#1d1d1f';
+  r.mainGlyphColor = rgb(ink);
+  r.secondaryGlyphColor = rgb(dark ? '#98989d' : '#6e6e73');
+  r.scoreInfoColor = rgb(ink);
+  r.staffLineColor = rgb(dark ? '#4a4a4f' : '#b4b4b9');
+  r.barSeparatorColor = rgb(dark ? '#8e8e93' : '#3a3a3c');
+  r.barNumberColor = rgb(dark ? '#8e8e93' : '#8e8e93');
+}
+
+// all text in the score uses the system sans-serif; music symbols stay in Bravura (SMuFL)
+function applySansFonts(s: alphaTab.Settings) {
+  const r = s.display.resources as any;
+  const swap = (f: alphaTab.model.Font | undefined) =>
+    f ? new alphaTab.model.Font(SANS, f.size, f.style, f.weight) : f;
+  const map: Map<number, alphaTab.model.Font> | undefined = r.elementFonts;
+  if (map) for (const [k, f] of Array.from(map.entries())) map.set(k, swap(f)!);
+  for (const key of ['effectFont', 'fingeringFont', 'inlineFingeringFont', 'numberedNotationFont', 'numberedNotationGraceFont', 'tablatureFont', 'graceFont']) {
+    if (r[key]) r[key] = swap(r[key]);
+  }
+}
+
+function applyNotationView(s: alphaTab.Settings) {
+  const v = prefs().notation;
+  s.display.staveProfile =
+    v === 'tab' ? alphaTab.StaveProfile.Tab : v === 'score' ? alphaTab.StaveProfile.Score : alphaTab.StaveProfile.Default;
+}
+
+function refreshLook() {
+  applyThemeToSettings(api.settings);
+  applyNotationView(api.settings);
+  api.settings.display.scale = prefs().zoom;
+  api.updateSettings();
+  render();
+}
+
+window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+  if (prefs().theme === 'auto') refreshLook();
+});
+
+function setZoom(z: number) {
+  const v = Math.round(Math.max(0.6, Math.min(1.6, z)) * 10) / 10;
+  setPrefs({ zoom: v });
+  refreshLook();
+  flash(t('Zoom {n} %', { n: Math.round(v * 100) }));
+}
+
+// ---------------- rendering ----------------
+function visibleTracks(): number[] {
+  if (!multiView) return [editor.cursor.track];
+  return editor.score.tracks
+    .map((tr, i) => (tr.isVisibleOnMultiTrack || i === editor.cursor.track ? i : -1))
+    .filter((i) => i >= 0);
+}
+
+let renderedKey = '';
+function render() {
+  renderPending = true;
+  const tracks = visibleTracks();
+  renderedKey = tracks.join(',');
+  api.renderScore(editor.score, tracks);
+}
+
+function setMultiView(on: boolean) {
+  multiView = on;
+  $('viewBtn').classList.toggle('on', on);
+  $('oneBtn').classList.toggle('on', !on);
+  render();
+}
+
+editor.onChange = (structural) => {
+  if (structural) refreshChrome();
+  else refreshOverview();
+  render();
+  updateStatus();
+  scheduleAutosave();
+};
+
+api.renderFinished.on(() => {
+  renderPending = false;
+  hideBoot();
+});
+api.postRenderFinished.on(() => {
+  updateCursor(true);
+});
+api.error.on((e) => flash(t('Fehler: {x}', { x: String((e as any)?.message ?? e) })));
+
+// ---------------- cursor overlay ----------------
+const cursorEl = $('cursor');
+const cursorRow = $('cursorRow');
+const laneLabel = document.createElement('div');
+laneLabel.className = 'lane';
+cursorEl.appendChild(laneLabel);
+
+interface CursorGeo { x: number; w: number; top: number; bottom: number; tab: alphaTab.rendering.Bounds | null }
+
+function trackBarBounds(barIndex: number) {
+  const mbb = api.boundsLookup?.findMasterBarByIndex(barIndex);
+  if (!mbb) return [];
+  return mbb.bars.filter((b) => {
+    const st = (b.bar ?? b.beats[0]?.beat.voice.bar)?.staff;
+    return st && st.track.index === editor.cursor.track && st.index === 0;
+  });
+}
+
+function beatBoxes(beat: alphaTab.model.Beat | undefined) {
+  if (!beat || !api.boundsLookup) return [];
+  return (api.boundsLookup.findBeats(beat) ?? []).filter((bb) => bb.beat.voice.bar.staff.track.index === editor.cursor.track);
+}
+
+function findCursorGeo(): CursorGeo | null {
+  const bars = trackBarBounds(editor.cursor.bar);
+  if (!bars.length) return null;
+  const first = bars[0].visualBounds;
+  const last = bars[bars.length - 1].visualBounds;
+  const showsTab = !editor.isDrums && editor.staff.showTablature && prefs().notation !== 'score';
+  const tab = showsTab ? last : null;
+  const all = beatBoxes(editor.beat);
+  let x: number, w: number;
+  if (all.length) {
+    const vb = all[all.length - 1].visualBounds;
+    x = vb.x;
+    w = Math.max(vb.w, 12);
+  } else {
+    // empty beat: place after the previous beat or at bar start
+    const prev = editor.cursor.beat > 0 ? beatBoxes(editor.voice.beats[editor.cursor.beat - 1]) : [];
+    if (prev.length) {
+      const vb = prev[prev.length - 1].visualBounds;
+      x = vb.x + vb.w + 14;
+    } else {
+      x = first.x + Math.min(30, first.w / 3);
+    }
+    w = 12;
+  }
+  return { x, w, top: first.y, bottom: last.y + last.h, tab };
+}
+
+const selEl = document.createElement('div');
+selEl.id = 'selection';
+$('sheet').appendChild(selEl);
+
+function drawSelection() {
+  selEl.innerHTML = '';
+  if (!editor.hasSelection || !api.boundsLookup) return;
+  const { start, end } = editor.selection();
+  for (let b = start.bar; b <= end.bar; b++) {
+    const bars = trackBarBounds(b);
+    if (!bars.length) continue;
+    const first = bars[0].visualBounds;
+    const last = bars[bars.length - 1].visualBounds;
+    const beats = editor.staff.bars[b].voices[0].beats;
+    const from = b === start.bar ? start.beat : 0;
+    const to = b === end.bar ? end.beat : beats.length - 1;
+    const fb = beatBoxes(beats[from]).pop()?.visualBounds;
+    const tb = beatBoxes(beats[to]).pop()?.visualBounds;
+    const x1 = from === 0 ? first.x + 2 : fb ? fb.x - 5 : first.x;
+    const x2 = to === beats.length - 1 ? first.x + first.w - 2 : tb ? tb.x + tb.w + 5 : first.x + first.w;
+    const r = document.createElement('div');
+    r.style.left = `${x1}px`;
+    r.style.width = `${Math.max(6, x2 - x1)}px`;
+    r.style.top = `${first.y - 8}px`;
+    r.style.height = `${last.y + last.h - first.y + 16}px`;
+    selEl.appendChild(r);
+  }
+}
+
+let lastScrollKey = '';
+function updateCursor(scroll = false) {
+  drawSelection();
+  const g = findCursorGeo();
+  if (!g) {
+    cursorEl.style.display = 'none';
+    return;
+  }
+  cursorEl.style.display = '';
+  const pad = 4;
+  const top = g.top - 10;
+  cursorEl.style.left = `${g.x - pad}px`;
+  cursorEl.style.width = `${g.w + pad * 2}px`;
+  cursorEl.style.top = `${top}px`;
+  cursorEl.style.height = `${g.bottom - g.top + 20}px`;
+  cursorEl.classList.toggle('drums', !g.tab);
+  if (!g.tab) {
+    laneLabel.textContent = editor.isDrums ? t(DRUM_LANES[editor.cursor.row].name) : '';
+  } else {
+    laneLabel.textContent = '';
+    const n = editor.rowCount;
+    const y = g.tab.y + (n > 1 ? (editor.cursor.row * g.tab.h) / (n - 1) : 0);
+    cursorRow.style.top = `${y - top - 7}px`;
+  }
+  const key = `${editor.cursor.bar}`;
+  if (scroll || key !== lastScrollKey) {
+    lastScrollKey = key;
+    ensureVisible(top - 30, g.bottom + 40);
+  }
+}
+
+function ensureVisible(top: number, bottom: number) {
+  if (playing) return;
+  const sc = $('scroll');
+  const offset = $('sheet').offsetTop;
+  const tp = top + offset;
+  const bt = bottom + offset;
+  if (tp < sc.scrollTop) sc.scrollTo({ top: tp - 20 });
+  else if (bt > sc.scrollTop + sc.clientHeight) sc.scrollTo({ top: bt - sc.clientHeight + 20 });
+}
+
+// ---------------- status bar ----------------
+const DUR_NAMES: Record<number, string> = { 1: '1/1', 2: '1/2', 4: '1/4', 8: '1/8', 16: '1/16', 32: '1/32', 64: '1/64' };
+
+function updateStatus() {
+  const c = editor.cursor;
+  const b = editor.beat;
+  $('lcdPos').textContent = `${c.bar + 1} · ${c.beat + 1}`;
+  let d = DUR_NAMES[b.duration] ?? String(b.duration);
+  if (b.dots) d += '.';
+  if (b.tupletNumerator === 3) d += '³';
+  $('lcdDur').textContent = d;
+  if (editor.isDrums) {
+    $('lcdRow').textContent = t(DRUM_LANES[c.row].name).split(' ')[0];
+    $('lcdRowCap').textContent = t('Drums');
+  } else {
+    $('lcdRow').textContent = alphaTab.model.Tuning.getTextForTuning(editor.staff.tuning[c.row], false);
+    $('lcdRowCap').textContent = t('Saite {n}', { n: c.row + 1 });
+  }
+  const f = editor.barFill();
+  const mb = editor.masterBar;
+  $('lcdSig').textContent = `${mb.timeSignatureNumerator}/${mb.timeSignatureDenominator}`;
+  const fill = $('lcdFill');
+  const over = f.used > f.total;
+  const under = !over && f.used < f.total && editor.barHasContent();
+  fill.textContent = over ? t('zu voll') : under ? t('offen') : t('Takt');
+  fill.classList.toggle('over', over);
+  fill.classList.toggle('warn', under);
+  $('lcdSigCell').dataset.tip = over ? t('Takt zu voll') : under ? t('Takt unvollständig') : t('Taktart ändern (M)');
+}
+
+let flashTimer = 0;
+function flash(msg: string) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(flashTimer);
+  flashTimer = window.setTimeout(() => el.classList.remove('on'), 2200);
+}
+
+// ---------------- notice banner ----------------
+function notice(text: string, actions: { label: string; fn: () => void; primary?: boolean }[] = []) {
+  $('noticeText').textContent = text;
+  const box = $('noticeActions');
+  box.innerHTML = '';
+  for (const a of actions) {
+    const b = document.createElement('button');
+    b.textContent = a.label;
+    b.className = a.primary ? 'btn primary' : 'btn';
+    b.onclick = () => {
+      hideNotice();
+      a.fn();
+    };
+    box.appendChild(b);
+  }
+  $('notice').classList.remove('hidden');
+}
+function hideNotice() {
+  $('notice').classList.add('hidden');
+}
+$('noticeClose').onclick = hideNotice;
+
+// ---------------- top bar + sidebars ----------------
+const titleEl = $<HTMLInputElement>('title');
+const tempoEl = $<HTMLInputElement>('tempo');
+
+const KIND_ICON: Record<string, IconName> = { guitar: 'guitar', bass: 'bass', drums: 'drum', synth: 'synth' };
+
+function trackSubtitle(tr: alphaTab.model.Track): string {
+  const st = tr.staves[0];
+  if (st.isPercussion) return t('Standard-Drumkit');
+  return gmName(tr.playbackInfo.program);
+}
+
+function trackTip(tr: alphaTab.model.Track): string {
+  const st = tr.staves[0];
+  if (st.isPercussion) return tr.name;
+  const name = st.stringTuning.name?.replace(/^(Guitar|Bass) /, '').replace(/ Tuning$/, '');
+  return `${tr.name}: ${gmName(tr.playbackInfo.program)}, ${name || tuningToText(st.tuning).replace(/-?\d/g, '')}`;
+}
+
+function refreshChrome() {
+  if (document.activeElement !== titleEl) titleEl.value = editor.score.title || fileName;
+  if (document.activeElement !== tempoEl) tempoEl.value = String(getTempo(editor.score));
+  refreshTrackList();
+  refreshSections();
+  refreshPanel();
+  updateWindowTitle();
+  refreshOverview();
+}
+
+// ---------------- boot skeleton ----------------
+function hideBoot() {
+  const b = document.getElementById('boot');
+  if (!b || b.classList.contains('out')) return;
+  b.classList.add('out');
+  setTimeout(() => b.remove(), 300);
+}
+setTimeout(hideBoot, 8000); // fallback
+
+// ---------------- overview (tracks × bars) ----------------
+let ovOpen = false;
+let ovPlayBar = -1;
+function refreshOverview() {
+  if (!ovOpen) return;
+  const sel = editor.hasSelection ? editor.selection() : null;
+  renderOverview($('ovContent'), {
+    score: editor.score,
+    track: editor.cursor.track,
+    bar: editor.cursor.bar,
+    sel: sel ? { start: sel.start.bar, end: sel.end.bar } : null,
+    playingBar: ovPlayBar,
+  }, { tracks: t('Spuren'), bar: (n) => t('Takt {n}', { n }) });
+}
+function showOverview(on: boolean) {
+  ovOpen = on;
+  $('overview').classList.toggle('hidden', !on);
+  $('ovBtn').classList.toggle('on', on);
+  setPrefs({ overview: on });
+  refreshOverview();
+}
+if (prefs().overview) setTimeout(() => showOverview(true));
+$('ovClose').onclick = () => showOverview(false);
+$('ovBtn').onclick = () => {
+  $('ovBtn').blur();
+  showOverview(!ovOpen);
+};
+$('overview').style.setProperty('--ov-h', prefs().ovHeight + 'px');
+$('overview').addEventListener('mousedown', (e) => {
+  if ((e.target as HTMLElement).closest('.ovTop')) return;
+  if ((e.target as HTMLElement).classList.contains('ovGrip')) {
+    e.preventDefault();
+    const ov = $('overview');
+    const y0 = e.clientY;
+    const h0 = ov.getBoundingClientRect().height;
+    document.body.classList.add('ovResizing');
+    const mv = (m: MouseEvent) => {
+      const h = Math.round(Math.min(window.innerHeight * 0.7, Math.max(90, h0 + y0 - m.clientY)));
+      ov.style.setProperty('--ov-h', h + 'px');
+    };
+    const up = () => {
+      document.body.classList.remove('ovResizing');
+      window.removeEventListener('mousemove', mv);
+      window.removeEventListener('mouseup', up);
+      setPrefs({ ovHeight: Math.round(ov.getBoundingClientRect().height) });
+      updateCursor(true);
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+    return;
+  }
+  const el = (e.target as HTMLElement).closest('[data-b],[data-t]') as HTMLElement | null;
+  if (!el) return;
+  e.preventDefault();
+  const tr = el.dataset.t !== undefined ? Number(el.dataset.t) : editor.cursor.track;
+  const b = el.dataset.b !== undefined ? Number(el.dataset.b) : -1;
+  if (tr !== editor.cursor.track) switchTrack(tr);
+  if (b >= 0) {
+    if (e.shiftKey && tr === editor.cursor.track) {
+      const a = editor.selAnchor?.bar ?? editor.cursor.bar;
+      const lastOf = (i: number) => Math.max(0, editor.staff.bars[i].voices[0].beats.length - 1);
+      // whole bars from anchor bar to clicked bar, in either direction
+      editor.selAnchor = b >= a ? { bar: a, beat: 0 } : { bar: a, beat: lastOf(a) };
+      editor.cursor.bar = b;
+      editor.cursor.beat = b >= a ? lastOf(b) : 0;
+    } else {
+      editor.clearSelection();
+      editor.cursor.bar = b;
+      editor.cursor.beat = 0;
+    }
+    moved();
+    updateCursor(true);
+  }
+});
+
+function updateWindowTitle() {
+  const name = editor.score.title || fileName;
+  document.title = `${editor.dirty ? '• ' : ''}${name} – Tabwriter`;
+  const parts = [editor.score.artist, editor.dirty ? t('Bearbeitet') : `${fileName}.${format}`].filter(Boolean);
+  $('subtitle').textContent = parts.join(' – ');
+}
+
+function refreshTrackList() {
+  const list = $('trackList');
+  list.innerHTML = '';
+  editor.score.tracks.forEach((tr, i) => {
+    const pi = tr.playbackInfo;
+    const kind = trackKind(tr);
+    const row = document.createElement('div');
+    row.className = 'trackRow' + (i === editor.cursor.track ? ' active' : '') + (pi.isMute ? ' muted' : '');
+    row.dataset.tip = trackTip(tr);
+    row.innerHTML = `<div class="trackIcon ${kind}">${icon(KIND_ICON[kind] ?? 'music')}</div>
+      <div class="info"><div class="name">${escapeHtml(tr.name || t('Spur {n}', { n: i + 1 }))}</div><div class="sub">${escapeHtml(trackSubtitle(tr))}</div></div>`;
+    const btns = document.createElement('div');
+    btns.className = 'btns';
+    const mk = (html: string, tip: string, on: boolean, cls: string, fn: () => void) => {
+      const b = document.createElement('button');
+      b.className = `tb ${cls}` + (on ? ' on' : '');
+      b.innerHTML = html;
+      b.dataset.tip = tip;
+      b.setAttribute('aria-label', tip);
+      b.onclick = (e) => {
+        e.stopPropagation();
+        b.blur();
+        fn();
+      };
+      btns.appendChild(b);
+    };
+    if (!tr.staves[0].isPercussion) {
+      mk(icon('tuningFork', 14), t('Stimmung ändern'), false, 'tune', () => {
+        switchTrack(i);
+        showPanel(true);
+        const txt = document.getElementById('pTuneText') as HTMLInputElement | null;
+        txt?.focus();
+        txt?.select();
+      });
+    }
+    mk(icon(tr.isVisibleOnMultiTrack ? 'eye' : 'eyeSlash', 14), tr.isVisibleOnMultiTrack ? t('In „Alle Spuren“ sichtbar') : t('In „Alle Spuren“ ausgeblendet'), tr.isVisibleOnMultiTrack, 'vis', () => {
+      editor.mutate((s) => (s.tracks[i].isVisibleOnMultiTrack = !s.tracks[i].isVisibleOnMultiTrack));
+    });
+    mk('M', t('Stumm'), pi.isMute, 'mute', () => toggleMute(i));
+    mk('S', t('Solo'), pi.isSolo, 'solo', () => toggleSolo(i));
+    row.appendChild(btns);
+    row.onclick = () => switchTrack(i);
+    row.ondblclick = async () => {
+      const n = await ask(t('Name der Spur'), tr.name);
+      if (n) editor.renameTrack(i, n);
+    };
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      openTrackMenu(i, e.clientX, e.clientY);
+    };
+    list.appendChild(row);
+  });
+}
+
+function refreshSections() {
+  const list = $('sectionList');
+  list.innerHTML = '';
+  const bars = editor.score.masterBars;
+  const starts = bars.map((mb, i) => (mb.section ? i : -1)).filter((i) => i >= 0);
+  if (!starts.length) {
+    list.innerHTML = `<div class="sideEmpty">${escapeHtml(t('Markiere Teile wie Intro oder Refrain mit + oder im Takt-Inspektor.'))}</div>`;
+    return;
+  }
+  starts.forEach((bi, k) => {
+    const end = (starts[k + 1] ?? bars.length) - 1;
+    const row = document.createElement('div');
+    row.className = 'secRow' + (editor.cursor.bar >= bi && editor.cursor.bar <= end ? ' active' : '');
+    row.innerHTML = `${icon('bookmark', 14)}<span class="secName">${escapeHtml(bars[bi].section!.text || t('Abschnitt'))}</span><span class="secBars">${bi + 1}–${end + 1}</span>`;
+    const sel = document.createElement('button');
+    sel.className = 'tb';
+    sel.innerHTML = icon('select', 14);
+    sel.dataset.tip = t('Ganzen Abschnitt auswählen');
+    sel.onclick = (e) => {
+      e.stopPropagation();
+      editor.selAnchor = { bar: bi, beat: 0 };
+      editor.cursor.bar = end;
+      editor.cursor.beat = editor.staff.bars[end].voices[0].beats.length - 1;
+      moved();
+      flash(t('Abschnitt ausgewählt – ⌘C zum Kopieren'));
+    };
+    row.appendChild(sel);
+    row.onclick = () => {
+      editor.clearSelection();
+      editor.cursor.bar = bi;
+      editor.cursor.beat = 0;
+      moved();
+    };
+    row.ondblclick = async () => {
+      const n = await ask(t('Name des Abschnitts'), bars[bi].section!.text);
+      if (n !== null) editor.setSection(n, bi);
+    };
+    list.appendChild(row);
+  });
+}
+
+$('addSection').onclick = async () => {
+  $('addSection').blur();
+  const cur = editor.masterBar.section?.text ?? '';
+  const n = await ask(t('Abschnitt ab Takt {n}', { n: editor.cursor.bar + 1 }), cur || t('Strophe'));
+  if (n !== null) editor.setSection(n);
+};
+
+function toggleMute(i: number) {
+  const tr = editor.score.tracks[i];
+  tr.playbackInfo.isMute = !tr.playbackInfo.isMute;
+  editor.dirty = true;
+  api.changeTrackMute([tr], tr.playbackInfo.isMute);
+  refreshTrackList();
+  scheduleAutosave();
+}
+
+function toggleSolo(i: number) {
+  const tr = editor.score.tracks[i];
+  tr.playbackInfo.isSolo = !tr.playbackInfo.isSolo;
+  editor.dirty = true;
+  api.changeTrackSolo([tr], tr.playbackInfo.isSolo);
+  refreshTrackList();
+  scheduleAutosave();
+}
+
+// ---------------- right panel (active track) ----------------
+let panelOpen = true;
+function showPanel(on: boolean) {
+  panelOpen = on;
+  document.body.classList.toggle('noPanel', !on);
+  $('panelBtn').classList.toggle('on', on);
+  render();
+}
+$('panelBtn').onclick = () => {
+  $('panelBtn').blur();
+  showPanel(!panelOpen);
+};
+
+type PanelTab = 'track' | 'bar';
+let panelTab: PanelTab = 'track';
+let panelBar = -1;
+
+function refreshPanel() {
+  const right = $('right');
+  right.innerHTML = '';
+  const tabs = document.createElement('div');
+  tabs.className = 'inspTabs';
+  tabs.innerHTML = `<div class="seg wideSeg">
+      <button data-tab="track" class="${panelTab === 'track' ? 'on' : ''}">${icon('guitar', 14)}<span>${escapeHtml(t('Spur'))}</span></button>
+      <button data-tab="bar" class="${panelTab === 'bar' ? 'on' : ''}">${icon('barIcon', 14)}<span>${escapeHtml(t('Takt'))}</span></button>
+    </div>`;
+  tabs.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    b.onclick = () => {
+      panelTab = b.dataset.tab as PanelTab;
+      b.blur();
+      refreshPanel();
+    };
+  });
+  right.appendChild(tabs);
+  const body = document.createElement('div');
+  body.className = 'inspBody';
+  right.appendChild(body);
+  panelBar = editor.cursor.bar;
+  if (panelTab === 'bar') refreshBarPanel(body);
+  else refreshTrackPanel(body);
+}
+
+function refreshTrackPanel(el: HTMLElement) {
+  const i = editor.cursor.track;
+  const tr = editor.score.tracks[i];
+  const st = tr.staves[0];
+  const drums = st.isPercussion;
+  const pi = tr.playbackInfo;
+  el.innerHTML = '';
+
+  const section = (title: string) => {
+    const s = document.createElement('section');
+    s.className = 'insp';
+    s.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+    el.appendChild(s);
+    return s;
+  };
+  const row = (parent: HTMLElement, label: string, ...controls: (HTMLElement | string)[]) => {
+    const r = document.createElement('div');
+    r.className = 'irow';
+    const l = document.createElement('span');
+    l.className = 'lbl';
+    l.textContent = label;
+    const c = document.createElement('div');
+    c.className = 'ctl';
+    for (const x of controls) {
+      if (typeof x === 'string') c.insertAdjacentHTML('beforeend', x);
+      else c.appendChild(x);
+    }
+    r.append(l, c);
+    parent.appendChild(r);
+    return r;
+  };
+  const popup = (sel: HTMLSelectElement) => {
+    const w = document.createElement('span');
+    w.className = 'popup';
+    w.appendChild(sel);
+    return w;
+  };
+
+  // track
+  const s1 = section(t('Spur'));
+  const name = document.createElement('input');
+  name.className = 'pInput';
+  name.value = tr.name;
+  name.spellcheck = false;
+  name.onchange = () => {
+    const v = name.value.trim();
+    if (v && v !== tr.name) editor.renameTrack(i, v);
+  };
+  name.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') name.blur();
+  };
+  row(s1, t('Name'), name);
+
+  // sound
+  const s2 = section(t('Klang'));
+  if (drums) {
+    row(s2, t('Instrument'), `<span class="sub">${escapeHtml(t('Standard-Drumkit'))}</span>`);
+  } else {
+    const sel = document.createElement('select');
+    GM_GROUPS.forEach((g, gi) => {
+      const og = document.createElement('optgroup');
+      og.label = t(g.name);
+      g.programs.forEach((p, k) => {
+        const o = document.createElement('option');
+        o.value = String(gi * 8 + k);
+        o.textContent = p;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+    sel.value = String(pi.program);
+    sel.onchange = () => {
+      editor.setTrackProgram(i, parseInt(sel.value));
+      sel.blur();
+      flash(t('Klang: {x}', { x: gmName(parseInt(sel.value)) }));
+    };
+    row(s2, t('Instrument'), popup(sel));
+  }
+  const vol = document.createElement('input');
+  vol.type = 'range';
+  vol.min = '0';
+  vol.max = '16';
+  vol.value = String(pi.volume);
+  vol.dataset.tip = t('Lautstärke: {n}', { n: pi.volume });
+  vol.onchange = () => {
+    editor.mutate((s) => (s.tracks[i].playbackInfo.volume = parseInt(vol.value)));
+    vol.blur();
+  };
+  const volWrap = document.createElement('span');
+  volWrap.className = 'vol';
+  volWrap.innerHTML = icon('speakerSlash', 14);
+  volWrap.appendChild(vol);
+  volWrap.insertAdjacentHTML('beforeend', icon('speaker', 14));
+  row(s2, t('Lautstärke'), volWrap);
+
+  const pan = document.createElement('input');
+  pan.type = 'range';
+  pan.min = '0';
+  pan.max = '16';
+  pan.value = String(pi.balance);
+  pan.dataset.tip = t('Panorama: links ← → rechts (Doppelklick = Mitte)');
+  pan.onchange = () => {
+    editor.mutate((s) => (s.tracks[i].playbackInfo.balance = parseInt(pan.value)));
+    pan.blur();
+  };
+  pan.ondblclick = () => editor.mutate((s) => (s.tracks[i].playbackInfo.balance = 8));
+  const panWrap = document.createElement('span');
+  panWrap.className = 'vol';
+  panWrap.innerHTML = '<span class="lr">L</span>';
+  panWrap.appendChild(pan);
+  panWrap.insertAdjacentHTML('beforeend', '<span class="lr">R</span>');
+  row(s2, t('Panorama'), panWrap);
+
+  // tuning
+  if (!drums) {
+    const s3 = section(t('Stimmung'));
+    const cur = st.tuning.slice();
+    const sel = document.createElement('select');
+    sel.innerHTML = `<option value="">${escapeHtml(t('Eigene'))}</option>`;
+    const all: number[][] = [];
+    for (const g of tuningPresets()) {
+      const og = document.createElement('optgroup');
+      og.label = g.group;
+      for (const p of g.presets) {
+        const o = document.createElement('option');
+        o.value = String(all.length);
+        all.push(p.tunings);
+        o.textContent = `${p.name.replace(/^(Guitar|Bass) /, '').replace(/ Tuning$/, '')} – ${tuningToText(p.tunings).replace(/-?\d/g, '')}`;
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
+    }
+    const txt = document.createElement('input');
+    txt.id = 'pTuneText';
+    txt.className = 'pInput mono';
+    txt.spellcheck = false;
+    txt.placeholder = 'E A D G B E';
+    txt.dataset.tip = t('Töne von tief nach hoch, z.B. D A D G B E');
+    txt.value = tuningToText(cur);
+    const strings = document.createElement('div');
+    strings.className = 'strings';
+    const err = document.createElement('div');
+    err.className = 'err';
+    const keep = document.createElement('input');
+    keep.type = 'checkbox';
+    keep.className = 'switch';
+    const keepLabel = document.createElement('label');
+    keepLabel.className = 'irow';
+    keepLabel.dataset.tip = t('An: Bünde werden umgerechnet, damit es gleich klingt. Aus: Bundzahlen bleiben gleich.');
+    keepLabel.innerHTML = `<span class="lbl">${escapeHtml(t('Klang halten'))}</span>`;
+    const keepCtl = document.createElement('span');
+    keepCtl.className = 'ctl';
+    keepCtl.appendChild(keep);
+    const apply = document.createElement('button');
+    apply.className = 'btn primary';
+    apply.textContent = t('Übernehmen');
+    apply.disabled = true;
+    keepCtl.insertAdjacentHTML('beforeend', '<span class="spacer"></span>');
+    keepCtl.appendChild(apply);
+    keepLabel.appendChild(keepCtl);
+
+    const parsed = () => parseTuning(txt.value, cur[cur.length - 1]);
+    const same = (a: number[], b: number[]) => a.length === b.length && a.every((v, k) => v === b[k]);
+    const sync = () => {
+      const r = parsed();
+      if (typeof r === 'string') {
+        err.textContent = r;
+        apply.disabled = true;
+        sel.value = '';
+        strings.innerHTML = '';
+        return;
+      }
+      err.textContent = '';
+      const idx = all.findIndex((a) => same(a, r));
+      sel.value = idx >= 0 ? String(idx) : '';
+      apply.disabled = same(r, cur);
+      strings.innerHTML = r
+        .map((m, k) => `<span class="${k < cur.length && cur[k] !== m ? 'chg' : ''}" data-tip="${escapeHtml(t('Saite {n}', { n: k + 1 }))}"><b>${k + 1}</b>${noteName(m)}</span>`)
+        .join('');
+    };
+    sel.onchange = () => {
+      if (sel.value !== '') txt.value = tuningToText(all[parseInt(sel.value)]);
+      sync();
+      sel.blur();
+    };
+    txt.oninput = sync;
+    txt.onkeydown = (e) => {
+      if (e.key === 'Enter' && !apply.disabled) apply.click();
+      if (e.key === 'Escape') {
+        txt.value = tuningToText(cur);
+        sync();
+        txt.blur();
+      }
+    };
+    apply.onclick = () => {
+      const r = parsed();
+      if (typeof r === 'string') return;
+      editor.setTuning(i, r, keep.checked, findPresetName(r));
+      flash(t('Stimmung: {x}', { x: tuningToText(r) }));
+    };
+    const presetWrap = popup(sel);
+    presetWrap.classList.add('wide');
+    row(s3, t('Vorlage'), presetWrap);
+    row(s3, t('Töne'), txt);
+    s3.append(strings, err, keepLabel);
+    sync();
+  }
+
+  if (editor.score.tracks.length > 1) {
+    const s4 = document.createElement('section');
+    s4.className = 'insp bottom';
+    const del = document.createElement('button');
+    del.className = 'btn danger';
+    del.innerHTML = `${icon('trash', 14)}<span>${escapeHtml(t('Spur löschen'))}</span>`;
+    del.onclick = async () => {
+      if (await confirmAsk(t('Spur „{x}" löschen?', { x: tr.name }))) {
+        editor.removeTrack(i);
+        refreshChrome();
+        render();
+      }
+    };
+    s4.appendChild(del);
+    el.appendChild(s4);
+  }
+}
+
+const KEYS_MAJOR = ['Ces', 'Ges', 'Des', 'As', 'Es', 'B', 'F', 'C', 'G', 'D', 'A', 'E', 'H', 'Fis', 'Cis'];
+const KEYS_MINOR = ['as', 'es', 'b', 'f', 'c', 'g', 'd', 'a', 'e', 'h', 'fis', 'cis', 'gis', 'dis', 'ais'];
+const KEYS_MAJOR_EN = ['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#'];
+const KEYS_MINOR_EN = ['ab', 'eb', 'bb', 'f', 'c', 'g', 'd', 'a', 'e', 'b', 'f#', 'c#', 'g#', 'd#', 'a#'];
+
+const D = alphaTab.model.Direction;
+const TARGETS: [number, string][] = [
+  [D.TargetSegno, 'Segno 𝄋'],
+  [D.TargetSegnoSegno, 'Segno Segno 𝄋𝄋'],
+  [D.TargetCoda, 'Coda 𝄌'],
+  [D.TargetDoubleCoda, 'Doppel-Coda 𝄌𝄌'],
+  [D.TargetFine, 'Fine'],
+];
+const JUMPS: [number, string][] = [
+  [D.JumpDaCapo, 'D.C.'],
+  [D.JumpDaCapoAlFine, 'D.C. al Fine'],
+  [D.JumpDaCapoAlCoda, 'D.C. al Coda'],
+  [D.JumpDaCapoAlDoubleCoda, 'D.C. al Doppel-Coda'],
+  [D.JumpDalSegno, 'D.S.'],
+  [D.JumpDalSegnoAlFine, 'D.S. al Fine'],
+  [D.JumpDalSegnoAlCoda, 'D.S. al Coda'],
+  [D.JumpDalSegnoAlDoubleCoda, 'D.S. al Doppel-Coda'],
+  [D.JumpDalSegnoSegno, 'D.S.S.'],
+  [D.JumpDalSegnoSegnoAlFine, 'D.S.S. al Fine'],
+  [D.JumpDalSegnoSegnoAlCoda, 'D.S.S. al Coda'],
+  [D.JumpDalSegnoSegnoAlDoubleCoda, 'D.S.S. al Doppel-Coda'],
+  [D.JumpDaCoda, 'To Coda'],
+  [D.JumpDaDoubleCoda, 'To Doppel-Coda'],
+];
+
+function refreshBarPanel(el: HTMLElement) {
+  const bi = editor.cursor.bar;
+  const mb = editor.masterBar;
+  const bar = editor.staff.bars[bi];
+  const section = (title: string) => {
+    const s = document.createElement('section');
+    s.className = 'insp';
+    s.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+    el.appendChild(s);
+    return s;
+  };
+  const row = (parent: HTMLElement, label: string, ...controls: (HTMLElement | string)[]) => {
+    const r = document.createElement('div');
+    r.className = 'irow';
+    r.innerHTML = `<span class="lbl">${escapeHtml(label)}</span>`;
+    const c = document.createElement('div');
+    c.className = 'ctl';
+    for (const x of controls) typeof x === 'string' ? c.insertAdjacentHTML('beforeend', x) : c.appendChild(x);
+    r.appendChild(c);
+    parent.appendChild(r);
+    return r;
+  };
+  const popup = (options: [string, string][], value: string, onChange: (v: string) => void, wide = true) => {
+    const sel = document.createElement('select');
+    for (const [v, l] of options) {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = l;
+      sel.appendChild(o);
+    }
+    sel.value = value;
+    sel.onchange = () => {
+      onChange(sel.value);
+      sel.blur();
+    };
+    const w = document.createElement('span');
+    w.className = 'popup' + (wide ? ' wide' : '');
+    w.appendChild(sel);
+    return w;
+  };
+  const en = currentLang() === 'en';
+
+  // time + key
+  const s1 = section(t('Takt {n}', { n: bi + 1 }));
+  const sig = document.createElement('input');
+  sig.className = 'pInput small';
+  sig.value = `${mb.timeSignatureNumerator}/${mb.timeSignatureDenominator}`;
+  sig.dataset.tip = t('z.B. 4/4, 3/4, 7/8');
+  sig.onchange = () => {
+    const mm = sig.value.match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+    if (mm && +mm[1] >= 1 && +mm[1] <= 32 && [1, 2, 4, 8, 16, 32].includes(+mm[2])) editor.setTimeSignature(+mm[1], +mm[2]);
+    else {
+      flash(t('Ungültige Taktart'));
+      sig.value = `${mb.timeSignatureNumerator}/${mb.timeSignatureDenominator}`;
+    }
+  };
+  sig.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') sig.blur();
+  };
+  row(s1, t('Taktart'), sig);
+  const minor = (bar.keySignatureType as number) === 1;
+  const keyNames = minor ? (en ? KEYS_MINOR_EN : KEYS_MINOR) : en ? KEYS_MAJOR_EN : KEYS_MAJOR;
+  const keyOpts: [string, string][] = keyNames.map((n, k) => [String(k - 7), `${n}${minor ? '-Moll' : '-Dur'}`.replace('-Moll', en ? ' minor' : '-Moll').replace('-Dur', en ? ' major' : '-Dur')]);
+  row(
+    s1,
+    t('Tonart'),
+    popup(keyOpts, String(bar.keySignature), (v) => editor.setKeySignature(parseInt(v), minor)),
+    popup([['0', t('Dur')], ['1', t('Moll')]], minor ? '1' : '0', (v) => editor.setKeySignature(bar.keySignature as number, v === '1'), false),
+  );
+
+  // repeats
+  const s2 = section(t('Wiederholung'));
+  const start = document.createElement('input');
+  start.type = 'checkbox';
+  start.className = 'switch';
+  start.checked = mb.isRepeatStart;
+  start.onchange = () => editor.setRepeatStart(start.checked);
+  row(s2, t('Anfang'), start, `<span class="hint">${escapeHtml(t('Taste W'))}</span>`);
+  const counts: [string, string][] = [['0', t('Kein Ende')]];
+  for (let n = 2; n <= 8; n++) counts.push([String(n), t('{n}× spielen', { n })]);
+  row(s2, t('Ende'), popup(counts, String(mb.repeatCount), (v) => editor.setRepeatCount(parseInt(v))));
+  const chips = document.createElement('div');
+  chips.className = 'chips';
+  for (let k = 0; k < 8; k++) {
+    const b = document.createElement('button');
+    const on = (mb.alternateEndings & (1 << k)) !== 0;
+    b.className = 'chip' + (on ? ' on' : '');
+    b.textContent = String(k + 1);
+    b.dataset.tip = t('{n}. Ende', { n: k + 1 });
+    b.onclick = () => editor.setAlternateEndings(mb.alternateEndings ^ (1 << k));
+    chips.appendChild(b);
+  }
+  row(s2, t('Alt. Enden'), chips);
+
+  // section + jumps
+  const s3 = section(t('Abschnitt & Sprünge'));
+  const name = document.createElement('input');
+  name.className = 'pInput';
+  name.placeholder = t('z.B. Refrain');
+  name.value = mb.section?.text ?? '';
+  name.onchange = () => editor.setSection(name.value);
+  name.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') name.blur();
+  };
+  row(s3, t('Abschnitt'), name);
+  const dirs = Array.from(mb.directions ?? []) as number[];
+  const target = TARGETS.find(([d]) => dirs.includes(d))?.[0];
+  const jump = JUMPS.find(([d]) => dirs.includes(d))?.[0];
+  row(s3, t('Ziel'), popup([['', t('Keins')], ...TARGETS.map(([d, l]) => [String(d), t(l)] as [string, string])], target === undefined ? '' : String(target), (v) => editor.setDirection('target', v === '' ? null : parseInt(v))));
+  row(s3, t('Sprung'), popup([['', t('Keiner')], ...JUMPS.map(([d, l]) => [String(d), t(l)] as [string, string])], jump === undefined ? '' : String(jump), (v) => editor.setDirection('jump', v === '' ? null : parseInt(v))));
+  s3.insertAdjacentHTML('beforeend', `<p class="hint">${escapeHtml(t('Sprünge stehen am Taktende, Ziele am Taktanfang.'))}</p>`);
+}
+
+async function confirmAsk(msg: string): Promise<boolean> {
+  const tt = (window as any).__TAURI__;
+  if (tt?.dialog?.ask) return await tt.dialog.ask(msg, { title: 'Tabwriter', kind: 'warning', okLabel: t('OK'), cancelLabel: t('Abbrechen') });
+  try {
+    return window.confirm(msg);
+  } catch {
+    return true;
+  }
+}
+
+function switchTrack(i: number) {
+  editor.gotoTrack(i);
+  refreshChrome();
+  if (visibleTracks().join(',') !== renderedKey) render();
+  else updateCursor(true);
+  updateStatus();
+}
+
+titleEl.onchange = () => {
+  editor.setTitle(titleEl.value.trim());
+  titleEl.blur();
+};
+titleEl.onkeydown = (e) => {
+  if (e.key === 'Enter' || e.key === 'Escape') titleEl.blur();
+  e.stopPropagation();
+};
+tempoEl.onchange = () => {
+  const v = Math.max(20, Math.min(400, parseInt(tempoEl.value) || 120));
+  editor.mutate((s) => setTempo(s, v));
+  tempoEl.blur();
+};
+tempoEl.onkeydown = (e) => {
+  if (e.key === 'Enter' || e.key === 'Escape') tempoEl.blur();
+  e.stopPropagation();
+};
+
+// popovers
+function closePops() {
+  document.querySelectorAll('.pop').forEach((p) => p.classList.add('hidden'));
+}
+document.addEventListener('mousedown', (e) => {
+  if (!(e.target as HTMLElement).closest('.pop, #menuBtn, #addTrack')) closePops();
+});
+
+$('menuBtn').onclick = () => {
+  const m = $('menu');
+  const hidden = m.classList.contains('hidden');
+  closePops();
+  if (hidden) m.classList.remove('hidden');
+};
+$('menu').onclick = (e) => {
+  const act = (e.target as HTMLElement).closest('button')?.dataset.act as Action | undefined;
+  closePops();
+  if (act) run(act);
+};
+
+function menuButton(pop: HTMLElement, ic: IconName | null, label: string, fn: () => void, cls = '') {
+  const b = document.createElement('button');
+  b.innerHTML = `${ic ? `<i>${icon(ic)}</i>` : '<i></i>'}<span>${escapeHtml(label)}</span>`;
+  if (cls) b.className = cls;
+  b.onclick = () => {
+    closePops();
+    fn();
+  };
+  pop.appendChild(b);
+}
+
+function placePop(pop: HTMLElement, x: number, y: number) {
+  pop.classList.remove('hidden');
+  const r = pop.getBoundingClientRect();
+  pop.style.left = `${Math.min(x, window.innerWidth - r.width - 8)}px`;
+  pop.style.top = `${Math.min(y, window.innerHeight - r.height - 8)}px`;
+}
+
+$('addTrack').onclick = () => {
+  const pop = $('trackMenu');
+  pop.innerHTML = '';
+  let lastKind = '';
+  for (const p of PRESETS) {
+    if (lastKind && p.kind !== lastKind) pop.appendChild(document.createElement('hr'));
+    lastKind = p.kind;
+    menuButton(pop, KIND_ICON[p.kind], t(p.label), () => {
+      editor.addTrack(p);
+      refreshChrome();
+      render();
+      updateStatus();
+    });
+  }
+  closePops();
+  const r = $('addTrack').getBoundingClientRect();
+  placePop(pop, r.left, r.bottom + 6);
+};
+
+function openTrackMenu(i: number, x: number, y: number) {
+  const tr = editor.score.tracks[i];
+  const pop = $('trackMenu');
+  pop.innerHTML = '';
+  menuButton(pop, 'pencil', t('Umbenennen …'), async () => {
+    const n = await ask(t('Name der Spur'), tr.name);
+    if (n) editor.renameTrack(i, n);
+  });
+  if (!tr.staves[0].isPercussion) {
+    menuButton(pop, 'tuningFork', t('Stimmung ändern …'), () => {
+      switchTrack(i);
+      showPanel(true);
+      document.getElementById('pTuneText')?.focus();
+    });
+  }
+  if (editor.score.tracks.length > 1) {
+    pop.appendChild(document.createElement('hr'));
+    menuButton(pop, 'trash', t('Spur löschen'), () => {
+      editor.removeTrack(i);
+      refreshChrome();
+      render();
+    }, 'danger');
+  }
+  closePops();
+  placePop(pop, x, y);
+}
+
+$('viewBtn').onclick = () => {
+  $('viewBtn').blur();
+  setMultiView(true);
+};
+$('oneBtn').onclick = () => {
+  $('oneBtn').blur();
+  setMultiView(false);
+};
+
+let leftOpen = true;
+function showLeft(on: boolean) {
+  leftOpen = on;
+  document.body.classList.toggle('noLeft', !on);
+  $('leftBtn').classList.toggle('on', on);
+  render();
+}
+$('leftBtn').onclick = () => {
+  $('leftBtn').blur();
+  showLeft(!leftOpen);
+};
+
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+// small prompt dialog (window.prompt is not available in Tauri)
+function ask(label: string, value = ''): Promise<string | null> {
+  return new Promise((resolve) => {
+    const ov = $('prompt');
+    const input = $<HTMLInputElement>('promptInput');
+    $('promptLabel').textContent = label;
+    input.value = value;
+    ov.classList.remove('hidden');
+    input.focus();
+    input.select();
+    const done = (v: string | null) => {
+      ov.classList.add('hidden');
+      input.onkeydown = null;
+      ov.onmousedown = null;
+      resolve(v);
+    };
+    input.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        done(input.value.trim());
+      } else if (e.key === 'Escape') done(null);
+    };
+    ov.onmousedown = (e) => {
+      if (e.target === ov) done(null);
+    };
+  });
+}
+
+// generic modal helper: Esc / click outside closes
+function modal(id: string, onClose?: () => void) {
+  const dlg = $(id);
+  const close = () => {
+    dlg.classList.add('hidden');
+    document.removeEventListener('keydown', esc, true);
+    onClose?.();
+  };
+  const esc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.preventDefault();
+      close();
+    }
+  };
+  document.addEventListener('keydown', esc, true);
+  dlg.onmousedown = (e) => {
+    if (e.target === dlg) close();
+  };
+  dlg.classList.remove('hidden');
+  return close;
+}
+
+function anyModalOpen() {
+  return ['prompt', 'meta', 'prefsDlg', 'aboutDlg', 'onboard', 'progressDlg', 'transDlg'].some((id) => !$(id).classList.contains('hidden'));
+}
+
+function toggleHelp(show?: boolean) {
+  $('help').classList.toggle('hidden', show === undefined ? undefined : !show);
+}
+$('help').onclick = () => toggleHelp(false);
+
+// ---------------- files ----------------
+function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: string; format?: Format; dirty?: boolean } = {}) {
+  stop();
+  editor.setScore(score);
+  editor.dirty = !!opts.dirty;
+  fileName = name.replace(/\.[^.]+$/, '');
+  format = opts.format ?? 'gp5';
+  saveHandle = opts.path ?? null;
+  refreshChrome();
+  render();
+  updateStatus();
+  closeLibrary();
+}
+
+function loadBytes(name: string, bytes: Uint8Array, path?: string): boolean {
+  try {
+    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
+    const ext = (name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
+    // .gp5 and .gp files are saved back in place in their own format; everything else becomes .gp5
+    const fmt: Format = ext === 'gp' ? 'gp' : 'gp5';
+    const inPlace = path && (ext === 'gp5' || ext === 'gp') ? path : undefined;
+    loadScore(score, name, { path: inPlace, format: fmt });
+    void clearAutosave();
+    flash(t('{x} geöffnet', { x: name }));
+    void addRecent(
+      { title: score.title || fileName, artist: score.artist, fileName: name, path, tracks: score.tracks.map((tr) => tr.name) },
+      bytes,
+    );
+    return true;
+  } catch (e: any) {
+    flash(t('Datei konnte nicht geöffnet werden: {x}', { x: e?.message ?? String(e) }));
+    console.error(e);
+    return false;
+  }
+}
+
+async function openSong() {
+  if (editor.dirty && !(await confirmDiscard())) return;
+  const f = await pickFile($<HTMLInputElement>('fileInput'));
+  if (f) loadBytes(f.name, f.bytes, typeof f.handle === 'string' ? f.handle : undefined);
+}
+
+async function openPath(path: string) {
+  if (editor.dirty && !(await confirmDiscard())) return;
+  try {
+    const bytes = await readPath(path);
+    loadBytes(path.split(/[\\/]/).pop() ?? path, bytes, path);
+  } catch (e: any) {
+    flash(t('Datei konnte nicht geöffnet werden: {x}', { x: e?.message ?? String(e) }));
+  }
+}
+
+async function confirmDiscard(): Promise<boolean> {
+  return confirmAsk(t('Ungespeicherte Änderungen verwerfen?'));
+}
+
+function baseName() {
+  return (editor.score.title || fileName || 'song').replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function songBytes(fmt: Format): Uint8Array {
+  return fmt === 'gp' ? new alphaTab.exporter.Gp7Exporter().export(editor.score, api.settings) : writeGp5(editor.score);
+}
+
+async function saveSong(saveAs = false) {
+  try {
+    const fmt: Format = saveAs ? 'gp5' : format;
+    const type = fmt === 'gp' ? GP7 : GP5;
+    const bytes = songBytes(fmt);
+    const r = await saveFile(`${baseName()}.${type.ext}`, bytes, saveAs ? undefined : saveHandle ?? undefined, type);
+    if (!r) return false;
+    format = fmt;
+    if (r.handle) saveHandle = r.handle;
+    editor.dirty = false;
+    fileName = r.name.replace(/\.[^.]+$/, '');
+    updateWindowTitle();
+    void clearAutosave();
+    flash(t('Gespeichert: {x}', { x: r.name }));
+    void addRecent(
+      { title: editor.score.title || fileName, artist: editor.score.artist, fileName: r.name, path: r.path, tracks: editor.score.tracks.map((tr) => tr.name) },
+      bytes,
+    );
+    return true;
+  } catch (e: any) {
+    flash(t('Speichern fehlgeschlagen: {x}', { x: e?.message ?? String(e) }));
+    console.error(e);
+    return false;
+  }
+}
+
+async function exportFile(kind: 'gp' | 'midi') {
+  try {
+    const bytes = kind === 'gp' ? songBytes('gp') : exportMidi(editor.score, api.settings);
+    const type = kind === 'gp' ? GP7 : MIDI;
+    const r = await saveFile(`${baseName()}.${type.ext}`, bytes, undefined, type);
+    if (r) flash(t('Exportiert: {x}', { x: r.name }));
+  } catch (e: any) {
+    flash(t('Export fehlgeschlagen: {x}', { x: e?.message ?? String(e) }));
+    console.error(e);
+  }
+}
+
+async function exportWav() {
+  if (!api.isReadyForPlayback) {
+    flash(t('Sound lädt noch …'));
+    return;
+  }
+  stop();
+  let cancelled = false;
+  $('progressLabel').textContent = t('Audio wird erstellt …');
+  $('progressBar').style.width = '0%';
+  const close = modal('progressDlg', () => (cancelled = true));
+  $('progressCancel').onclick = () => close();
+  try {
+    const bytes = await renderWav(api, (f) => ($('progressBar').style.width = `${Math.round(f * 100)}%`), () => cancelled);
+    close();
+    if (!bytes) return;
+    const r = await saveFile(`${baseName()}.wav`, bytes, undefined, WAV);
+    if (r) flash(t('Exportiert: {x}', { x: r.name }));
+  } catch (e: any) {
+    close();
+    flash(t('Export fehlgeschlagen: {x}', { x: e?.message ?? String(e) }));
+    console.error(e);
+  }
+}
+
+async function doPrint() {
+  stop();
+  flash(t('Druckansicht wird vorbereitet …'));
+  const tracks = multiView ? visibleTracks() : [editor.cursor.track];
+  await printScore(editor.score, tracks, api.settings);
+}
+
+async function newSong() {
+  if (editor.dirty && !(await confirmDiscard())) return;
+  loadScore(createEmptyScore(), t('Neuer Song'));
+  void clearAutosave();
+}
+
+async function openDemo() {
+  if (editor.dirty && !(await confirmDiscard())) return;
+  loadScore(buildDemo(api.settings), t('Demo-Song'));
+  setMultiView(true);
+  void clearAutosave();
+}
+
+// ---------------- autosave / recovery ----------------
+const AUTOSAVE_KEY = '__autosave';
+interface AutosaveData { json: string; fileName: string; path?: string; format: Format; time: number; title: string }
+let autosaveTimer = 0;
+
+function scheduleAutosave() {
+  updateWindowTitle();
+  if (!prefs().autosave || !editor.dirty) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(writeAutosave, 1500);
+}
+
+async function writeAutosave() {
+  clearTimeout(autosaveTimer);
+  if (!prefs().autosave || !editor.dirty) return;
+  const data: AutosaveData = {
+    json: snapshot(editor.score),
+    fileName,
+    path: typeof saveHandle === 'string' ? saveHandle : undefined,
+    format,
+    time: Date.now(),
+    title: editor.score.title || fileName,
+  };
+  await dbPut(AUTOSAVE_KEY, data);
+}
+
+async function clearAutosave() {
+  clearTimeout(autosaveTimer);
+  await dbDelete(AUTOSAVE_KEY);
+}
+
+async function showRecovery() {
+  const data = await dbGet<AutosaveData>(AUTOSAVE_KEY);
+  const box = $('libRecover');
+  if (!data) {
+    box.classList.add('hidden');
+    return;
+  }
+  $('libRecoverSub').textContent = `${data.title} · ${relTime(data.time)}`;
+  box.classList.remove('hidden');
+  $('recRestore').onclick = () => {
+    try {
+      const score = restore(data.json, api.settings);
+      loadScore(score, data.fileName, { path: data.path, format: data.format, dirty: true });
+      flash(t('Wiederhergestellt'));
+    } catch (e) {
+      console.error(e);
+      flash(t('Wiederherstellen fehlgeschlagen'));
+    }
+  };
+  $('recDiscard').onclick = async () => {
+    await clearAutosave();
+    box.classList.add('hidden');
+  };
+}
+
+// ---------------- library ----------------
+let hasSong = false; // false until something was opened/created (start screen)
+
+function openLibrary() {
+  hideBoot();
+  closePops();
+  renderLibrary();
+  void showRecovery();
+  $('library').classList.remove('hidden');
+  $('libClose').classList.toggle('hidden', !hasSong);
+}
+
+function closeLibrary() {
+  hasSong = true;
+  $('library').classList.add('hidden');
+}
+
+function libraryOpen() {
+  return !$('library').classList.contains('hidden');
+}
+
+function renderLibrary() {
+  const list = $('libList');
+  const items = listRecent();
+  list.innerHTML = '';
+  if (!items.length) {
+    list.innerHTML = `<div class="libEmpty">${escapeHtml(t('Noch keine Songs. Öffne eine Datei oder starte einen neuen Song.'))}</div>`;
+    return;
+  }
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'libRow';
+    const sub = [it.artist, it.fileName].filter(Boolean).join(' · ');
+    row.innerHTML = `
+      <div class="libIcon">${escapeHtml((it.fileName.match(/\.([^.]+)$/)?.[1] ?? 'gp').toLowerCase())}</div>
+      <div class="libInfo">
+        <div class="libTitle">${escapeHtml(it.title || it.fileName)}</div>
+        <div class="libSub">${escapeHtml(sub)}</div>
+        <div class="libTracks">${escapeHtml(it.tracks.slice(0, 6).join(', '))}${it.tracks.length > 6 ? ' …' : ''}</div>
+      </div>
+      <div class="libTime">${relTime(it.time)}</div>
+      <button class="tbtn small libRemove" data-tip="${escapeHtml(t('Aus der Liste entfernen'))}">${icon('xmark', 12)}</button>`;
+    row.onclick = () => openRecent(it);
+    (row.querySelector('.libRemove') as HTMLElement).onclick = async (e) => {
+      e.stopPropagation();
+      await removeRecent(it.id);
+      renderLibrary();
+    };
+    list.appendChild(row);
+  }
+}
+
+async function openRecent(it: RecentEntry) {
+  if (editor.dirty && !(await confirmDiscard())) return;
+  let bytes: Uint8Array | null = null;
+  if (it.path && isTauri()) {
+    try {
+      bytes = await readPath(it.path);
+    } catch {
+      bytes = null;
+    }
+  }
+  if (!bytes) bytes = await cachedBytes(it.id);
+  if (!bytes) {
+    flash(t('Datei nicht gefunden'));
+    return;
+  }
+  loadBytes(it.fileName, bytes, it.path);
+}
+
+$('libNew').onclick = () => newSong();
+$('libOpen').onclick = () => openSong();
+$('libDemo').onclick = () => openDemo();
+$('libClose').onclick = () => closeLibrary();
+
+// ---------------- song info (metadata) ----------------
+const META_FIELDS: [keyof alphaTab.model.Score, string][] = [
+  ['title', 'Titel'],
+  ['subTitle', 'Untertitel'],
+  ['artist', 'Interpret'],
+  ['album', 'Album'],
+  ['music', 'Musik'],
+  ['words', 'Text'],
+  ['tab', 'Tab von'],
+  ['copyright', 'Copyright'],
+  ['instructions', 'Anweisungen'],
+  ['notices', 'Notizen'],
+];
+
+function openMeta() {
+  closePops();
+  const dlg = $('meta');
+  const form = dlg.querySelector('form') as HTMLFormElement;
+  const grid = $('metaFields');
+  grid.innerHTML = '';
+  const sc = editor.score as any;
+  for (const [key, label] of META_FIELDS) {
+    const l = document.createElement('label');
+    l.className = 'field' + (key === 'notices' ? ' wide' : '');
+    l.textContent = t(label);
+    const inp = document.createElement(key === 'notices' ? 'textarea' : 'input') as HTMLInputElement;
+    inp.name = key as string;
+    inp.value = sc[key] ?? '';
+    inp.spellcheck = false;
+    l.appendChild(inp);
+    grid.appendChild(l);
+  }
+  const close = modal('meta');
+  $('metaCancel').onclick = close;
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    editor.mutate((s) => {
+      for (const [key] of META_FIELDS) (s as any)[key] = String(fd.get(key as string) ?? '').trim();
+    });
+    close();
+    flash(t('Song-Infos gespeichert'));
+  };
+  (grid.querySelector('input') as HTMLInputElement).focus();
+}
+
+// ---------------- preferences ----------------
+function openPrefs() {
+  closePops();
+  const form = $('prefsDlg').querySelector('form') as HTMLFormElement;
+  const p = prefs();
+  const langBefore = p.lang;
+  (form.elements.namedItem('lang') as HTMLSelectElement).value = p.lang;
+  (form.elements.namedItem('theme') as HTMLSelectElement).value = p.theme;
+  (form.elements.namedItem('notation') as HTMLSelectElement).value = p.notation;
+  const zoom = form.elements.namedItem('zoom') as HTMLInputElement;
+  zoom.value = String(Math.round(p.zoom * 100));
+  $('zoomVal').textContent = `${zoom.value} %`;
+  (form.elements.namedItem('notePreview') as HTMLInputElement).checked = p.notePreview;
+  (form.elements.namedItem('autosave') as HTMLInputElement).checked = p.autosave;
+  (form.elements.namedItem('autoReflow') as HTMLInputElement).checked = p.autoReflow;
+  (form.elements.namedItem('countIn') as HTMLInputElement).checked = p.countIn;
+
+  const apply = () => {
+    setPrefs({
+      lang: (form.elements.namedItem('lang') as HTMLSelectElement).value as any,
+      theme: (form.elements.namedItem('theme') as HTMLSelectElement).value as any,
+      notation: (form.elements.namedItem('notation') as HTMLSelectElement).value as any,
+      zoom: parseInt(zoom.value) / 100,
+      notePreview: (form.elements.namedItem('notePreview') as HTMLInputElement).checked,
+      autosave: (form.elements.namedItem('autosave') as HTMLInputElement).checked,
+      autoReflow: (form.elements.namedItem('autoReflow') as HTMLInputElement).checked,
+      countIn: (form.elements.namedItem('countIn') as HTMLInputElement).checked,
+    });
+    editor.autoReflow = prefs().autoReflow;
+    applyPractice();
+    $('zoomVal').textContent = `${zoom.value} %`;
+    refreshLook();
+    if (!prefs().autosave) void clearAutosave();
+  };
+  form.onchange = apply;
+  zoom.oninput = () => ($('zoomVal').textContent = `${zoom.value} %`);
+  const close = modal('prefsDlg', async () => {
+    if (prefs().lang !== langBefore) {
+      // texts are set at startup: reload (the song survives via autosave)
+      await writeAutosave();
+      location.reload();
+    }
+  });
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    close();
+  };
+}
+
+// ---------------- transpose ----------------
+function openTranspose() {
+  closePops();
+  if (editor.isDrums) {
+    flash(t('Drums lassen sich nicht transponieren'));
+    return;
+  }
+  let semis = 1;
+  let scope: 'selection' | 'track' | 'song' = editor.hasSelection ? 'selection' : 'track';
+  const val = $('trVal');
+  const cap = $('trCap');
+  const sync = () => {
+    val.textContent = (semis > 0 ? '+' : '') + semis;
+    cap.textContent = Math.abs(semis) === 1 ? t('Halbton') : t('Halbtöne');
+    $('trScope').querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.scope === scope));
+  };
+  $('trUp').onclick = () => { semis = Math.min(24, semis + 1); if (semis === 0) semis = 1; sync(); };
+  $('trDown').onclick = () => { semis = Math.max(-24, semis - 1); if (semis === 0) semis = -1; sync(); };
+  $('trScope').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    b.onclick = () => {
+      scope = b.dataset.scope as typeof scope;
+      sync();
+    };
+  });
+  const keys = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowUp' || e.key === '+') { e.preventDefault(); $('trUp').click(); }
+    if (e.key === 'ArrowDown' || e.key === '-') { e.preventDefault(); $('trDown').click(); }
+  };
+  document.addEventListener('keydown', keys, true);
+  const close = modal('transDlg', () => document.removeEventListener('keydown', keys, true));
+  $('trCancel').onclick = close;
+  ($('transDlg').querySelector('form') as HTMLFormElement).onsubmit = (e) => {
+    e.preventDefault();
+    close();
+    const n = editor.transpose(semis, scope);
+    flash(t('{n} Noten um {s} transponiert', { n, s: (semis > 0 ? '+' : '') + semis }));
+  };
+  sync();
+}
+
+// ---------------- about / onboarding ----------------
+function openAbout() {
+  closePops();
+  $('aboutVersion').textContent = t('Version {x}', { x: __APP_VERSION__ });
+  const close = modal('aboutDlg');
+  $('aboutClose').onclick = close;
+}
+
+function openOnboarding() {
+  closePops();
+  const slides = Array.from($('obSlides').children) as HTMLElement[];
+  let i = 0;
+  const dots = $('obDots');
+  dots.innerHTML = slides.map(() => '<span></span>').join('');
+  const show = () => {
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+    Array.from(dots.children).forEach((d, k) => d.classList.toggle('on', k === i));
+    $('obBack').style.visibility = i === 0 ? 'hidden' : '';
+    $('obNext').textContent = i === slides.length - 1 ? t('Los geht\'s') : t('Weiter');
+  };
+  const close = modal('onboard', () => setPrefs({ onboarded: true }));
+  $('obBack').onclick = () => {
+    i = Math.max(0, i - 1);
+    show();
+  };
+  $('obNext').onclick = () => {
+    if (i === slides.length - 1) close();
+    else {
+      i++;
+      show();
+    }
+  };
+  $('obDemo').onclick = () => {
+    close();
+    void openDemo();
+  };
+  show();
+}
+
+// drag & drop
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  document.body.classList.add('drop');
+});
+document.addEventListener('dragleave', (e) => {
+  if (e.target === document.documentElement || !(e as DragEvent).relatedTarget) document.body.classList.remove('drop');
+});
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  document.body.classList.remove('drop');
+  const f = e.dataTransfer?.files?.[0];
+  if (f) {
+    if (editor.dirty && !(await confirmDiscard())) return;
+    const o = await readDropped(f);
+    loadBytes(o.name, o.bytes);
+  }
+});
+
+// ---------------- playback ----------------
+const playBtn = $('play');
+
+api.playerStateChanged.on((e) => {
+  playing = e.state === alphaTab.synth.PlayerState.Playing;
+  playBtn.innerHTML = icon(playing ? 'pause' : 'play');
+  playBtn.dataset.tip = playing ? t('Pausieren') : t('Wiedergabe starten');
+  playBtn.classList.toggle('playing', playing);
+  cursorEl.style.visibility = playing ? 'hidden' : '';
+  document.body.classList.toggle('playing', playing);
+  if (!playing && playedBeat) {
+    jumpToBeat(playedBeat);
+    playedBeat = null;
+  }
+});
+api.playedBeatChanged.on((b) => {
+  playedBeat = b;
+  const pb = b?.voice.bar.index ?? -1;
+  if (pb !== ovPlayBar) { ovPlayBar = pb; refreshOverview(); }
+});
+api.playerFinished.on(() => {
+  playedBeat = null;
+  ovPlayBar = -1;
+  refreshOverview();
+});
+
+function jumpToBeat(b: alphaTab.model.Beat) {
+  const ti = b.voice.bar.staff.track.index;
+  if (ti !== editor.cursor.track) {
+    if (!multiView) return;
+    editor.gotoTrack(ti);
+    refreshChrome();
+  }
+  editor.cursor.bar = b.voice.bar.index;
+  editor.cursor.beat = Math.max(0, editor.voice.beats.findIndex((x) => x.id === b.id));
+  editor.clamp();
+  updateCursor(true);
+  updateStatus();
+}
+
+function togglePlay() {
+  if (!api.isReadyForPlayback) {
+    flash(t('Sound lädt noch …'));
+    return;
+  }
+  if (playing) {
+    api.pause();
+    return;
+  }
+  if (renderPending) {
+    setTimeout(togglePlay, 50);
+    return;
+  }
+  let tick = 0;
+  try {
+    tick = api.tickCache?.getBeatStart(editor.beat) ?? editor.cursorTick();
+  } catch {
+    tick = editor.cursorTick();
+  }
+  playedBeat = null;
+  if (looping) {
+    const r = selectionRange();
+    api.playbackRange = r;
+    if (r) tick = r.startTick;
+  }
+  api.tickPosition = tick;
+  api.play();
+}
+
+function stop() {
+  playedBeat = null;
+  api.stop();
+}
+
+playBtn.onclick = () => {
+  playBtn.blur();
+  togglePlay();
+};
+// practice tools
+let looping = false;
+function applyPractice() {
+  api.metronomeVolume = prefs().metronome ? 1 : 0;
+  api.countInVolume = prefs().countIn ? 1 : 0;
+  api.playbackSpeed = prefs().speed;
+  $('metroBtn').classList.toggle('on', prefs().metronome);
+  $('loopBtn').classList.toggle('on', looping);
+  $('lcdSpeed').textContent = `${Math.round(prefs().speed * 100)} %`;
+  $('speedCell').classList.toggle('changed', prefs().speed !== 1);
+}
+
+function selectionRange(): alphaTab.synth.PlaybackRange | null {
+  if (!editor.hasSelection || !api.tickCache) return null;
+  const { start, end } = editor.selection();
+  const bs = editor.staff.bars[start.bar].voices[0].beats[start.beat];
+  const be = editor.staff.bars[end.bar].voices[0].beats[end.beat];
+  try {
+    const r = new alphaTab.synth.PlaybackRange();
+    r.startTick = api.tickCache.getBeatStart(bs);
+    r.endTick = api.tickCache.getBeatStart(be) + be.playbackDuration;
+    return r.endTick > r.startTick ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+function toggleLoop() {
+  looping = !looping;
+  api.isLooping = looping;
+  api.playbackRange = looping ? selectionRange() : null;
+  applyPractice();
+  flash(looping ? (editor.hasSelection ? t('Schleife über die Auswahl') : t('Schleife über den ganzen Song')) : t('Schleife aus'));
+}
+
+function toggleMetronome() {
+  setPrefs({ metronome: !prefs().metronome });
+  applyPractice();
+  flash(prefs().metronome ? t('Metronom an') : t('Metronom aus'));
+}
+
+$('loopBtn').onclick = () => {
+  $('loopBtn').blur();
+  toggleLoop();
+};
+$('metroBtn').onclick = () => {
+  $('metroBtn').blur();
+  toggleMetronome();
+};
+$('speedCell').onclick = () => {
+  const pop = $('trackMenu');
+  pop.innerHTML = '';
+  for (const v of [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.25]) {
+    menuButton(pop, prefs().speed === v ? 'speed' : null, `${Math.round(v * 100)} %`, () => {
+      setPrefs({ speed: v });
+      applyPractice();
+    });
+  }
+  closePops();
+  const r = $('speedCell').getBoundingClientRect();
+  placePop(pop, r.left, r.bottom + 8);
+};
+
+$('stopBtn').onclick = () => {
+  $('stopBtn').blur();
+  stop();
+};
+
+// note preview while typing (throttled: alphaTab's audio output dislikes rapid restarts)
+let previewTimer = 0;
+let lastPreview = 0;
+function previewNote(n: alphaTab.model.Note | null | undefined) {
+  if (!n || playing || !api.isReadyForPlayback || !prefs().notePreview) return;
+  clearTimeout(previewTimer);
+  const wait = Math.max(40, 220 - (performance.now() - lastPreview));
+  const beatId = n.beat.id;
+  const noteIdx = n.beat.notes.indexOf(n);
+  previewTimer = window.setTimeout(() => {
+    if (playing) return;
+    const b = editor.beat;
+    const target = b.id === beatId ? b.notes[noteIdx] : editor.noteAtCursor();
+    if (!target) return;
+    lastPreview = performance.now();
+    try {
+      api.playNote(target);
+    } catch {
+      /* ignore */
+    }
+  }, wait);
+}
+
+// click on the sheet moves the cursor
+let mouseShift = false;
+$('at').addEventListener('mousedown', (e) => (mouseShift = e.shiftKey), true);
+api.beatMouseDown.on((b) => {
+  if (b.voice.index !== 0) return;
+  const sameTrack = b.voice.bar.staff.track.index === editor.cursor.track;
+  if (mouseShift && sameTrack) {
+    if (!editor.selAnchor) editor.selAnchor = { bar: editor.cursor.bar, beat: editor.cursor.beat };
+  } else {
+    editor.clearSelection();
+  }
+  jumpToBeat(b);
+});
+api.noteMouseDown.on((n) => {
+  if (editor.isDrums || n.beat.voice.index !== 0) return;
+  if (n.beat.voice.bar.staff.track.index !== editor.cursor.track) return;
+  editor.cursor.row = editor.stringCount - n.string;
+  updateCursor();
+  updateStatus();
+});
+
+async function editTimeSig() {
+  const mb = editor.masterBar;
+  const v = await ask(t('Taktart (z.B. 4/4, 3/4, 7/8)'), `${mb.timeSignatureNumerator}/${mb.timeSignatureDenominator}`);
+  const mm = v?.match(/^\s*(\d+)\s*\/\s*(\d+)\s*$/);
+  if (mm) {
+    const n = parseInt(mm[1]);
+    const d = parseInt(mm[2]);
+    if (n >= 1 && n <= 32 && [1, 2, 4, 8, 16, 32].includes(d)) editor.setTimeSignature(n, d);
+    else flash(t('Ungültige Taktart'));
+  }
+}
+$('lcdSigCell').onclick = () => void editTimeSig();
+
+// ---------------- actions (shared by keyboard, ⋯ menu and the native menu) ----------------
+const lastRun = new Map<Action, number>();
+
+function inTextField() {
+  const el = document.activeElement as HTMLElement | null;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+}
+
+function doCopy() { flash(editor.copy()); }
+function doCut() { flash(editor.cut()); }
+function doPaste(insertBars = false) {
+  const err = editor.paste(insertBars);
+  if (err) flash(err);
+}
+
+function run(a: Action) {
+  // the native menu and the keyboard handler may both fire for the same shortcut
+  const now = performance.now();
+  if (now - (lastRun.get(a) ?? 0) < 250) return;
+  lastRun.set(a, now);
+  switch (a) {
+    case 'about': openAbout(); break;
+    case 'prefs': openPrefs(); break;
+    case 'updates': void runUpdateCheck(true); break;
+    case 'quit': void closeWindow(); break;
+    case 'new': void newSong(); break;
+    case 'open': void openSong(); break;
+    case 'library': openLibrary(); break;
+    case 'save': void saveSong(); break;
+    case 'saveas': void saveSong(true); break;
+    case 'export-gp': void exportFile('gp'); break;
+    case 'export-midi': void exportFile('midi'); break;
+    case 'export-wav': void exportWav(); break;
+    case 'print': void doPrint(); break;
+    case 'meta': openMeta(); break;
+    case 'undo':
+      if (inTextField()) document.execCommand('undo');
+      else editor.undo();
+      break;
+    case 'redo':
+      if (inTextField()) document.execCommand('redo');
+      else editor.redo();
+      break;
+    case 'paste-insert': if (!inTextField()) doPaste(true); break;
+    case 'select-all':
+      if (inTextField()) (document.activeElement as HTMLInputElement).select?.();
+      else { editor.selectAll(); moved(); }
+      break;
+    case 'multi': setMultiView(!multiView); break;
+    case 'panel': showPanel(!panelOpen); break;
+    case 'sidebar': showLeft(!leftOpen); break;
+    case 'overview': showOverview(!ovOpen); break;
+    case 'zoom-in': setZoom(prefs().zoom + 0.1); break;
+    case 'zoom-out': setZoom(prefs().zoom - 0.1); break;
+    case 'zoom-reset': setZoom(1); break;
+    case 'play': togglePlay(); break;
+    case 'stop': stop(); break;
+    case 'loop': toggleLoop(); break;
+    case 'metronome': toggleMetronome(); break;
+    case 'transpose': openTranspose(); break;
+    case 'help': toggleHelp(true); break;
+    case 'onboarding': openOnboarding(); break;
+    case 'demo': void openDemo(); break;
+  }
+}
+
+// clipboard events (native Edit menu in the desktop app, and the browser's own menu)
+let lastClip = 0;
+function clipGuard() {
+  const now = performance.now();
+  if (now - lastClip < 250) return false;
+  lastClip = now;
+  return true;
+}
+document.addEventListener('copy', (e) => {
+  if (inTextField() || libraryOpen() || anyModalOpen()) return;
+  e.preventDefault();
+  if (clipGuard()) doCopy();
+});
+document.addEventListener('cut', (e) => {
+  if (inTextField() || libraryOpen() || anyModalOpen()) return;
+  e.preventDefault();
+  if (clipGuard()) doCut();
+});
+document.addEventListener('paste', (e) => {
+  if (inTextField() || libraryOpen() || anyModalOpen()) return;
+  e.preventDefault();
+  if (clipGuard()) doPaste(false);
+});
+
+// ---------------- keyboard ----------------
+let lastSectionBar = -1;
+function moved() {
+  updateCursor();
+  updateStatus();
+  if (panelTab === 'bar' && panelBar !== editor.cursor.bar && panelOpen) refreshPanel();
+  if (lastSectionBar !== editor.cursor.bar) {
+    lastSectionBar = editor.cursor.bar;
+    refreshSections();
+  }
+  refreshOverview();
+}
+
+window.addEventListener('keydown', async (e) => {
+  if (anyModalOpen()) return;
+  const mod = e.metaKey || e.ctrlKey;
+  const k = e.key;
+  if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(k)) return;
+
+  if (libraryOpen()) {
+    const lk0 = k.toLowerCase();
+    if (k === 'Escape' && hasSong) { e.preventDefault(); closeLibrary(); }
+    else if (mod && lk0 === 'n') { e.preventDefault(); run('new'); }
+    else if (mod && lk0 === 'o') { e.preventDefault(); run('open'); }
+    else if (mod && lk0 === ',') { e.preventDefault(); run('prefs'); }
+    else if (mod && e.shiftKey && lk0 === 'l' && hasSong) { e.preventDefault(); closeLibrary(); }
+    return;
+  }
+  if (!$('help').classList.contains('hidden')) {
+    toggleHelp(false);
+    e.preventDefault();
+    return;
+  }
+  if (inTextField()) return;
+
+  // --- app shortcuts ---
+  if (mod) {
+    const lk = k.toLowerCase();
+    const map: Record<string, Action> = {
+      s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: 'multi', i: 'panel', b: 'overview',
+      p: 'print', ',': 'prefs', '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
+    };
+    if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
+    if (lk === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); return; }
+    if (lk === 'c') { e.preventDefault(); if (clipGuard()) doCopy(); return; }
+    if (lk === 'x') { e.preventDefault(); if (clipGuard()) doCut(); return; }
+    if (lk === 'v') {
+      e.preventDefault();
+      if (e.shiftKey) run('paste-insert');
+      else if (clipGuard()) doPaste(false);
+      return;
+    }
+    if (lk === 'a') { e.preventDefault(); run('select-all'); return; }
+    if (map[lk]) { e.preventDefault(); run(map[lk]); return; }
+    if (lk === 'q' || lk === 'w' || lk === 'r') return; // leave to the OS / browser
+    editor.clearSelection();
+    if (k === 'ArrowLeft') { e.preventDefault(); editor.prevBar(); moved(); return; }
+    if (k === 'ArrowRight') { e.preventDefault(); editor.nextBar(); moved(); return; }
+    if (k === 'ArrowUp') { e.preventDefault(); editor.home(); moved(); return; }
+    if (k === 'ArrowDown') { e.preventDefault(); editor.end(); moved(); return; }
+    return;
+  }
+
+  closePops();
+
+  // --- selection ---
+  if (e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) {
+    e.preventDefault();
+    if (k === 'ArrowLeft') e.altKey ? editor.selPrevBar() : editor.selPrev();
+    else e.altKey ? editor.selNextBar() : editor.selNext();
+    moved();
+    return;
+  }
+  if (editor.hasSelection && e.shiftKey && (k === 'ArrowUp' || k === 'ArrowDown')) {
+    e.preventDefault();
+    editor.transpose(k === 'ArrowUp' ? 1 : -1, 'selection');
+    return;
+  }
+  if (editor.hasSelection) {
+    if (k === 'Backspace' || k === 'Delete') {
+      e.preventDefault();
+      editor.deleteSelection();
+      return;
+    }
+    if (k === 'Escape') {
+      e.preventDefault();
+      editor.clearSelection();
+      drawSelection();
+      return;
+    }
+    editor.clearSelection();
+    drawSelection();
+  }
+
+  let handled = true;
+  switch (k) {
+    case 'ArrowLeft':
+      e.altKey ? editor.prevBar() : editor.prev();
+      moved();
+      break;
+    case 'ArrowRight':
+      e.altKey ? editor.nextBar() : editor.next();
+      moved();
+      break;
+    case 'ArrowUp':
+      if (e.shiftKey) previewNote(editor.transposeNote(1));
+      else { editor.moveRow(-1); moved(); }
+      break;
+    case 'ArrowDown':
+      if (e.shiftKey) previewNote(editor.transposeNote(-1));
+      else { editor.moveRow(1); moved(); }
+      break;
+    case 'Home': editor.home(); moved(); break;
+    case 'End': editor.end(); moved(); break;
+    case 'Tab': {
+      const n = editor.score.tracks.length;
+      switchTrack((editor.cursor.track + (e.shiftKey ? n - 1 : 1)) % n);
+      break;
+    }
+    case ' ': togglePlay(); break;
+    case 'Escape': stop(); break;
+    case '+': case '=': editor.changeDuration(1); break;
+    case '-': case '_': editor.changeDuration(-1); break;
+    case '.': case ':': editor.toggleDot(); break;
+    case 'Backspace': case 'Delete':
+      e.shiftKey ? editor.deleteBeat() : editor.deleteNote();
+      break;
+    case 'Enter':
+      if (editor.isDrums) previewNote(editor.toggleDrum());
+      else handled = false;
+      break;
+    case '?': toggleHelp(); break;
+    default: handled = false;
+  }
+  if (handled) { e.preventDefault(); return; }
+
+  if (/^[0-9]$/.test(k)) {
+    e.preventDefault();
+    previewNote(editor.typeDigit(parseInt(k)));
+    return;
+  }
+
+  handled = true;
+  switch (k.toLowerCase()) {
+    case 'r': editor.toggleRest(); break;
+    case 't': editor.toggleTriplet(); break;
+    case 'i': editor.insertBeat(); break;
+    case 'l': editor.toggleTie(); break;
+    case 'h': editor.toggleHammer(); break;
+    case 's': editor.toggleSlide(); break;
+    case 'v': editor.toggleVibrato(); break;
+    case 'u': editor.toggleBend(); break;
+    case 'p': editor.togglePalmMute(); break;
+    case 'g': editor.toggleGhost(); break;
+    case 'a': editor.toggleAccent(); break;
+    case 'n': editor.toggleLetRing(); break;
+    case 'x':
+      if (editor.isDrums) previewNote(editor.toggleDrum());
+      else editor.toggleDead();
+      break;
+    case 'b': e.shiftKey ? editor.deleteBar() : editor.insertBar(); break;
+    case 'w': e.shiftKey ? editor.toggleRepeatEnd() : editor.toggleRepeatStart(); break;
+    case 'm': e.preventDefault(); void editTimeSig(); break;
+    default: handled = false;
+  }
+  if (handled) e.preventDefault();
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (editor.dirty) {
+    void writeAutosave();
+    if (!isDesktop()) e.preventDefault();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') void writeAutosave();
+});
+window.addEventListener('resize', () => setTimeout(() => updateCursor(), 300));
+
+// ---------------- desktop integration ----------------
+async function runUpdateCheck(manual: boolean) {
+  const u = await checkUpdate();
+  if (!u) {
+    if (manual) flash(t('Keine Updates gefunden'));
+    return;
+  }
+  notice(t('Version {x} ist verfügbar.', { x: u.version }), [
+    {
+      label: t('Jetzt aktualisieren'),
+      primary: true,
+      fn: async () => {
+        if (editor.dirty && !(await saveSong())) return;
+        flash(t('Update wird geladen …'));
+        await u.install((f) => flash(t('Update wird geladen … {n} %', { n: Math.round(f * 100) })));
+      },
+    },
+    { label: t('Später'), fn: () => {} },
+  ]);
+}
+
+if (isDesktop()) {
+  void setupMenu(run);
+  guardClose(
+    () => editor.dirty,
+    () => confirmAsk(t('Ungespeicherte Änderungen verwerfen und schließen?')),
+    () => clearAutosave(),
+  );
+  void onOpenFiles((paths) => {
+    if (paths[0]) void openPath(paths[0]);
+  });
+  setTimeout(() => void runUpdateCheck(false), 4000);
+} else {
+  // web: offline support + browser check
+  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    import('virtual:pwa-register').then(({ registerSW }) => {
+      const update = registerSW({
+        onNeedRefresh() {
+          notice(t('Eine neue Version ist verfügbar.'), [
+            { label: t('Neu laden'), primary: true, fn: async () => { await writeAutosave(); update(true); } },
+            { label: t('Später'), fn: () => {} },
+          ]);
+        },
+        onOfflineReady() {
+          flash(t('Tabwriter funktioniert jetzt auch offline'));
+        },
+      });
+    }).catch(() => {});
+  }
+  const issue = checkBrowser();
+  if (issue) notice(issue);
+}
+
+// expose for debugging / tests
+(window as any).app = { api, editor, loadBytes, run };
+
+refreshChrome();
+render();
+updateStatus();
+applyPractice();
+openLibrary();
+if (!prefs().onboarded) setTimeout(openOnboarding, 300);

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tabwriter",
+  "version": "1.0.0",
+  "identifier": "at.benni.tabwriter",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Tabwriter",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 900,
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState"
+        }
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "gp5"
+        ],
+        "name": "Guitar Pro 5",
+        "description": "Guitar Pro 5 Tabulatur",
+        "role": "Editor",
+        "mimeType": "application/x-guitar-pro"
+      },
+      {
+        "ext": [
+          "gp"
+        ],
+        "name": "Guitar Pro",
+        "description": "Guitar Pro Tabulatur",
+        "role": "Editor"
+      },
+      {
+        "ext": [
+          "gp4",
+          "gp3",
+          "gpx"
+        ],
+        "name": "Guitar Pro (alt)",
+        "description": "Guitar Pro Tabulatur",
+        "role": "Viewer"
+      }
+    ],
+    "category": "Music",
+    "shortDescription": "Tabs und Noten mit der Tastatur schreiben",
+    "copyright": "© 2026 Benjamin Auer",
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://github.com/REPLACE_OWNER/REPLACE_REPO/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+scratch/
+_to_delete/
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+*.local
