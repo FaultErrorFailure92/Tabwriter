@@ -127,6 +127,7 @@
       <button data-act="export-wav"><i data-icon="waveform"></i><span>Als Audio exportieren …</span></button>
       <button data-act="export-reaper"><i data-icon="share"></i><span>Für Reaper exportieren …</span></button>
       <button data-act="print"><i data-icon="printer"></i><span>Drucken / PDF …</span><kbd>⌘P</kbd></button>
+      <button data-act="print-parts"><i data-icon="printer"></i><span>Stimmen drucken …</span><kbd>⇧⌘P</kbd></button>
       <hr />
       <button data-act="transpose"><i data-icon="transpose"></i><span>Transponieren …</span><kbd>⌘T</kbd></button>
       <button data-act="meta"><i data-icon="textInfo"></i><span>Song-Infos …</span></button>
@@ -423,6 +424,21 @@
         <p class="hint">Versionen werden in der .tabw-Datei gespeichert. Wiederherstellen lässt sich mit ⌘Z rückgängig machen.</p>
         <div class="row"><span class="spacer"></span><button type="button" class="btn" id="verClose">Fertig</button></div>
       </div>
+    </div>
+
+    <div id="partsDlg" class="overlay hidden">
+      <form class="card parts">
+        <h2>Stimmen drucken</h2>
+        <p class="hint">Jede Spur beginnt auf einer neuen Seite. Im Druckdialog „Als PDF sichern“ wählen.</p>
+        <div id="partsList"></div>
+        <label class="chk"><input type="checkbox" id="partsLead" checked /> Lead Sheet anhängen</label>
+        <label class="chk"><input type="checkbox" id="partsTogether" /> Ausgewählte Spuren zusammen (Partitur)</label>
+        <div class="row">
+          <span class="spacer"></span>
+          <button type="button" class="btn" id="partsCancel">Abbrechen</button>
+          <button type="submit" class="btn primary">Drucken …</button>
+        </div>
+      </form>
     </div>
 
     <div id="progressDlg" class="overlay hidden">

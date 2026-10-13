@@ -1353,3 +1353,15 @@ body.rehearsing #lead { width: calc(100% - 32px); }
 .verRow:not(:hover):not(.open) .verTools .btn:not(:first-child) { display: none; }
 .verDiff { margin: 4px 0 2px 24px; padding-left: 14px; font-size: 12.5px; line-height: 1.6; }
 .verRow .hint { margin: 8px 0 0 24px; }
+
+/* ---------- parts printing ---------- */
+.card.parts { width: min(440px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 10px; }
+.card.parts h2 { margin: 0; }
+.card.parts .row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+#partsList { display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 10px; background: var(--fill); }
+label.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+label.chk.part:hover { background: var(--fill); }
+label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
+#printArea.parts .printPart + .printPart { break-before: page; }
+#printArea.parts .partLabel { font: 600 11px -apple-system, Helvetica, Arial, sans-serif; color: #666; text-transform: none; margin: 0 0 4px; }
+#printArea .printPart.leadPrint { font: 14px var(--font); color: #111; --label: #111; --label2: #555; --label3: #999; --sep-strong: #bbb; --accent: #111; --accent-soft: #eee; --fill: transparent; }

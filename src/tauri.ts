@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions';
+  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions' | 'print-parts';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();
@@ -69,6 +69,7 @@ export async function setupMenu(run: (a: Action) => void) {
       Promise.resolve(exportMenu),
       sep(),
       item('print', t('Drucken / PDF …'), 'CmdOrCtrl+P'),
+      item('print-parts', t('Stimmen drucken …'), 'CmdOrCtrl+Shift+P'),
       item('meta', t('Song-Infos …')),
       sep(),
       pre('CloseWindow', t('Fenster schließen')),

@@ -19,7 +19,7 @@ import { listRecent, addRecent, removeRecent, cachedBytes, relTime, dbGet, dbPut
 import { exportMidi } from './midi';
 import { writeGp5 } from './gp5writer';
 import { renderWav } from './wav';
-import { printScore } from './print';
+import { printScore, printParts } from './print';
 import { buildDemo } from './demo';
 import { tuningToText, parseTuning, tuningPresets, findPresetName, noteName } from './tuning';
 import { GM_GROUPS, gmName } from './gm';
@@ -1732,7 +1732,7 @@ function modal(id: string, onClose?: () => void) {
 }
 
 function anyModalOpen() {
-  return ['prompt', 'meta', 'prefsDlg', 'aboutDlg', 'onboard', 'progressDlg', 'transDlg', 'verDlg'].some((id) => !$(id).classList.contains('hidden'));
+  return ['prompt', 'meta', 'prefsDlg', 'aboutDlg', 'onboard', 'progressDlg', 'transDlg', 'verDlg', 'partsDlg'].some((id) => !$(id).classList.contains('hidden'));
 }
 
 function toggleHelp(show?: boolean) {
@@ -2189,6 +2189,34 @@ function openPrefs() {
 }
 
 // ---------------- transpose ----------------
+// ---------------- parts (one PDF per musician) ----------------
+function openParts() {
+  closePops();
+  stop();
+  const list = $('partsList');
+  list.innerHTML = '';
+  editor.score.tracks.forEach((tr, i) => {
+    const l = document.createElement('label');
+    l.className = 'chk part';
+    l.innerHTML = `<input type="checkbox" data-t="${i}" ${i === editor.cursor.track || editor.score.tracks.length <= 4 ? 'checked' : ''}/><span class="ovIcon trackIcon ${trackKind(tr)}">${icon(KIND_ICON[trackKind(tr)] ?? 'music', 12)}</span><span>${escapeHtml(tr.name)}</span>`;
+    list.appendChild(l);
+  });
+  const close = modal('partsDlg');
+  $('partsCancel').onclick = close;
+  ($('partsDlg').querySelector('form') as HTMLFormElement).onsubmit = async (e) => {
+    e.preventDefault();
+    const sel = Array.from(list.querySelectorAll<HTMLInputElement>('input:checked')).map((x) => Number(x.dataset.t));
+    const lead = ($('partsLead') as HTMLInputElement).checked;
+    if (!sel.length && !lead) return;
+    close();
+    flash(t('Druckansicht wird vorbereitet …'));
+    const together = ($('partsTogether') as HTMLInputElement).checked;
+    const parts = together ? [{ title: sel.map((i) => editor.score.tracks[i].name).join(' · '), tracks: sel }] : sel.map((i) => ({ title: editor.score.tracks[i].name, tracks: [i] }));
+    const html = lead ? renderLeadSheet(editor.score, { perRow: 4, current: -1, playing: -1, title: editor.score.title || fileName, artist: editor.score.artist, tempo: getTempo(editor.score) }) : '';
+    await printParts(editor.score, parts, api.settings, lead ? { title: t('Lead Sheet'), html } : undefined);
+  };
+}
+
 // ---------------- versions ----------------
 function openVersions() {
   closePops();
@@ -2603,6 +2631,7 @@ function run(a: Action) {
     case 'print': void doPrint(); break;
     case 'meta': openMeta(); break;
     case 'versions': openVersions(); break;
+    case 'print-parts': openParts(); break;
     case 'undo':
       if (inTextField()) document.execCommand('undo');
       else editor.undo();
@@ -2710,7 +2739,7 @@ window.addEventListener('keydown', async (e) => {
     const lk = k.toLowerCase();
     const map: Record<string, Action> = {
       s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: e.shiftKey ? 'lead' : 'multi', i: 'panel', b: 'overview',
-      p: 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
+      p: e.shiftKey ? 'print-parts' : 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
     if ((lk === 's' || e.code === 'KeyS') && e.altKey && e.metaKey) { e.preventDefault(); run('versions'); return; }
