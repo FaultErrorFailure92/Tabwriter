@@ -7,7 +7,7 @@ import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore, rebuild } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
-import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
+import { initBand, openBand, closeBand, bandOpen, STEPS, bandReady as hasBand, bandWizard, songSaved, type BandTab } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
 import { startMidi, stopMidi, midiSupported } from './midiin';
@@ -957,7 +957,12 @@ const bandReady = initBand({
   editor: () => { closeBand(); closeLibrary(); },
   hasSong: () => hasSong,
   songTitle: () => editor.score.title || fileName,
-  newSong: () => { closeBand(); void newSong(); },
+  newSong: (title) => { closeBand(); void newSong(title); },
+  mountTabwriter: (box) => {
+    renderLibrary();
+    void showRecovery();
+    box.appendChild(libWrap());
+  },
   snippet: () => editor.snippet(),
   useClip: (c) => {
     editor.setClip(c);
@@ -988,12 +993,8 @@ const bandReady = initBand({
 });
 // the home screen may have been drawn before the band data was loaded
 void bandReady.then(() => {
-  if (libraryOpen() && !bandOpen()) renderFlow();
+  if (libraryOpen()) openLibrary();
 });
-$('bandBtn').onclick = () => {
-  $('bandBtn').blur();
-  run('band');
-};
 
 // ---------------- arrangement ----------------
 $('arrBtn').onclick = async () => {
@@ -2053,6 +2054,7 @@ async function saveSong(saveAs = false) {
       { title: editor.score.title || fileName, artist: editor.score.artist, fileName: r.name, path: r.path, tracks: editor.score.tracks.map((tr) => tr.name) },
       bytes,
     );
+    songSaved(editor.score.title || fileName, r.path ?? (typeof r.handle === 'string' ? r.handle : r.name));
     return true;
   } catch (e: any) {
     flash(t('Speichern fehlgeschlagen: {x}', { x: e?.message ?? String(e) }));
@@ -2127,9 +2129,11 @@ async function doPrint() {
   await printScore(editor.score, tracks, api.settings);
 }
 
-async function newSong() {
+async function newSong(title?: string) {
   if (editor.dirty && !(await confirmDiscard())) return;
-  loadScore(createEmptyScore(), t('Neuer Song'));
+  const sc = createEmptyScore();
+  if (title) sc.title = title;
+  loadScore(sc, title || t('Neuer Song'));
   void clearAutosave();
 }
 
@@ -2201,9 +2205,20 @@ async function showRecovery() {
 // ---------------- library ----------------
 let hasSong = false; // false until something was opened/created (start screen)
 
+/** the Tabwriter part of the start screen; lives in #library or inside the band overview */
+const libWrap = () => document.querySelector('.libWrap') as HTMLElement;
+
 function openLibrary() {
   hideBoot();
   closePops();
+  if (hasBand()) {
+    // Stagecraft: the overview is part of the band shell
+    $('library').classList.add('hidden');
+    openBand('home');
+    return;
+  }
+  closeBand();
+  if (libWrap().parentElement !== $('library')) $('library').appendChild(libWrap());
   renderLibrary();
   renderFlow();
   void showRecovery();
@@ -2214,6 +2229,7 @@ function openLibrary() {
 function closeLibrary() {
   hasSong = true;
   $('library').classList.add('hidden');
+  closeBand();
 }
 
 function libraryOpen() {
@@ -2275,20 +2291,16 @@ $('libDemo').onclick = () => openDemo();
 $('libClose').onclick = () => closeLibrary();
 $('homeBtn').onclick = () => { $('homeBtn').blur(); openLibrary(); };
 
-/** home: the process as steps, each opens its area */
+/** start screen without a band: one entry to set up Stagecraft; Tabwriter works without it */
 function renderFlow() {
   const box = $('flow');
   box.innerHTML = '';
-  $('libLead').textContent = bandName() ? t('{x} – von der Idee bis zur Bühne', { x: bandName() }) : t('Von der Idee bis zur Bühne');
-  STEPS.forEach((st, i) => {
-    const s = stepStatus(st.tab);
-    const card = document.createElement('button');
-    card.className = 'flowStep' + (s.done ? ' done' : '');
-    card.innerHTML = `<span class="flowNum">${s.done ? icon('checkmark', 12) : i + 1}</span><span class="flowIcon">${icon(st.icon, 20)}</span><span class="flowTitle">${escapeHtml(t(st.label))}</span><span class="flowSub">${escapeHtml(s.text)}</span>`;
-    card.dataset.key = `⌘${i + 1}`;
-    card.onclick = () => openStep(st.tab);
-    box.appendChild(card);
-  });
+  $('libLead').textContent = t('Von der Idee bis zur Bühne');
+  const card = document.createElement('button');
+  card.className = 'flowSetup';
+  card.innerHTML = `<span class="flowIcon">${icon('people', 22)}</span><span><span class="flowTitle">${escapeHtml(t('Band einrichten'))}</span><span class="flowSub">${escapeHtml(t('Mitglieder, Songs, Bühne, Setlists und Gigs – Schritt für Schritt. Tabwriter funktioniert auch ohne.'))}</span></span>${icon('chevronRight', 14)}`;
+  card.onclick = () => void bandWizard();
+  box.appendChild(card);
 }
 
 function openStep(tb: BandTab) {
@@ -2867,7 +2879,6 @@ function run(a: Action) {
     case 'onboarding': openOnboarding(); break;
     case 'demo': void openDemo(); break;
     case 'lead': setLeadMode(!leadMode); break;
-    case 'band': if (bandOpen()) closeBand(); else { closePops(); openBand(); } break;
   }
 }
 
@@ -2919,8 +2930,7 @@ window.addEventListener('keydown', async (e) => {
   if (bandOpen()) {
     if (mod && e.shiftKey && k.toLowerCase() === 'l') { e.preventDefault(); closeBand(); openLibrary(); return; }
     if (mod && /^[1-5]$/.test(k)) { e.preventDefault(); openBand(STEPS[Number(k) - 1].tab); return; }
-    if (k === 'Escape' && !inTextField()) { e.preventDefault(); closeBand(); if (!hasSong) openLibrary(); }
-    else if (mod && k.toLowerCase() === 'g' && e.shiftKey) { e.preventDefault(); closeBand(); }
+    if (k === 'Escape' && !inTextField() && hasSong && !document.querySelector('.wizOverlay')) { e.preventDefault(); closeBand(); }
     return;
   }
   if (libraryOpen()) {
@@ -2929,7 +2939,6 @@ window.addEventListener('keydown', async (e) => {
     else if (mod && lk0 === 'n') { e.preventDefault(); run('new'); }
     else if (mod && lk0 === 'o') { e.preventDefault(); run('open'); }
     else if (mod && lk0 === ',') { e.preventDefault(); run('prefs'); }
-    else if (mod && e.shiftKey && lk0 === 'g') { e.preventDefault(); run('band'); }
     else if (mod && /^[1-5]$/.test(k)) { e.preventDefault(); openStep(STEPS[Number(k) - 1].tab); }
     else if (mod && e.shiftKey && lk0 === 'l' && hasSong) { e.preventDefault(); closeLibrary(); }
     return;
@@ -2946,7 +2955,7 @@ window.addEventListener('keydown', async (e) => {
     const lk = k.toLowerCase();
     const map: Record<string, Action> = {
       s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: e.shiftKey ? 'lead' : 'multi', i: 'panel', b: 'overview',
-      p: e.shiftKey ? 'print-parts' : 'print', j: 'fretboard', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
+      p: e.shiftKey ? 'print-parts' : 'print', j: 'fretboard', ',': 'prefs', '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
     if ((lk === 's' || e.code === 'KeyS') && e.altKey && e.metaKey) { e.preventDefault(); run('versions'); return; }

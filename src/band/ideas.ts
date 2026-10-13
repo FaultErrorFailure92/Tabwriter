@@ -3,7 +3,8 @@
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
 import { dbGet, dbPut, dbDelete } from '../library';
-import { el, iconBtn, input, select, esc, save } from './dom';
+import { el, input, select, esc, save } from './dom';
+import { card, row, columns, detailHead, searchField, type MenuItem } from './kit';
 import { type Band, type Idea, type IdeaKind, newIdea, newSong, fmtDur } from './model';
 import type { Clip } from '../editor';
 
@@ -26,66 +27,65 @@ const KIND_ICON: Record<IdeaKind, IconName> = { riff: 'guitar', memo: 'mic', tex
 const KIND_LABEL: Record<IdeaKind, string> = { riff: 'Riff', memo: 'Sprachmemo', text: 'Text' };
 export const audioKey = (id: string) => `memo:${id}`;
 
-export function renderIdeas(main: HTMLElement, b: Band, host: IdeaHost, rerender: () => void) {
-  // actions
-  const bar = el('div', 'subBar');
-  const riff = el('button', 'btn', `${icon('guitar', 14)}<span>${esc(t('Riff aus Auswahl'))}</span>`);
-  riff.dataset.tip = t('Markiere im Editor Takte oder Schläge, dann hier speichern');
-  riff.onclick = () => {
-    const c = host.snippet();
-    if (!c) return host.flash(t('Erst im Editor etwas markieren (⇧←/→)'));
-    const it = newIdea('riff', t('Riff {n}', { n: b.ideas.filter((x) => x.kind === 'riff').length + 1 }));
-    it.clip = c;
-    it.preview = asciiTab(c);
-    try {
-      const tempo = JSON.parse(c.json).masterbars?.[0]?.tempoautomations?.[0]?.value;
-      if (tempo) it.bpm = Math.round(tempo);
-    } catch {
-      /* ignore */
-    }
-    b.ideas.unshift(it);
-    sel = it.id;
-    save();
-    rerender();
-  };
-  const rec = el('button', 'btn' + (recorder ? ' recording' : ''), recorder ? `${icon('stop', 14)}<span class="recTime">0:00</span>` : `${icon('mic', 14)}<span>${esc(t('Sprachmemo'))}</span>`);
-  rec.dataset.tip = recorder ? t('Aufnahme beenden') : t('Mit dem Mikrofon aufnehmen');
-  rec.onclick = () => void (recorder ? stopRecording() : startRecording(b, rerender, host));
-  const imp = el('button', 'btn', `${icon('waveform', 14)}<span>${esc(t('Audio importieren'))}</span>`);
-  imp.onclick = () => importAudio(b, rerender, host);
-  const txt = el('button', 'btn', `${icon('textInfo', 14)}<span>${esc(t('Text-Idee'))}</span>`);
-  txt.onclick = () => {
-    const it = newIdea('text', t('Neue Idee'));
-    b.ideas.unshift(it);
-    sel = it.id;
-    save();
-    rerender();
-    (document.querySelector('.bandDetail .bandTitle') as HTMLInputElement | null)?.select();
-  };
-  bar.append(riff, rec, imp, txt);
-  bar.appendChild(el('span', 'spacer'));
-  const q = el('input', 'pInput search');
-  q.type = 'search';
-  q.placeholder = t('Suchen …');
-  q.value = query;
-  q.oninput = () => {
-    query = q.value;
-    const pos = q.selectionStart;
-    rerender();
-    const nq = document.querySelector('#band .subBar .search') as HTMLInputElement;
-    nq.focus();
-    nq.setSelectionRange(pos, pos);
-  };
-  bar.appendChild(q);
-  main.appendChild(bar);
-  if (recorder) recTick();
+/** the ways to add an idea (shown in the "+ Idee" menu) */
+export function ideaAddItems(b: Band, host: IdeaHost, rerender: () => void): MenuItem[] {
+  return [
+    {
+      icon: 'guitar', label: t('Riff aus der Auswahl im Editor'), fn: () => {
+        const c = host.snippet();
+        if (!c) return host.flash(t('Erst im Editor etwas markieren (⇧←/→)'));
+        const it = newIdea('riff', t('Riff {n}', { n: b.ideas.filter((x) => x.kind === 'riff').length + 1 }));
+        it.clip = c;
+        it.preview = asciiTab(c);
+        try {
+          const tempo = JSON.parse(c.json).masterbars?.[0]?.tempoautomations?.[0]?.value;
+          if (tempo) it.bpm = Math.round(tempo);
+        } catch {
+          /* ignore */
+        }
+        b.ideas.unshift(it);
+        sel = it.id;
+        save();
+        rerender();
+      },
+    },
+    { icon: 'mic', label: t('Sprachmemo aufnehmen'), fn: () => void startRecording(b, rerender, host) },
+    { icon: 'waveform', label: t('Audio importieren …'), fn: () => importAudio(b, rerender, host) },
+    {
+      icon: 'textInfo', label: t('Text-Idee'), fn: () => {
+        const it = newIdea('text', t('Neue Idee'));
+        b.ideas.unshift(it);
+        sel = it.id;
+        save();
+        rerender();
+        (document.querySelector('#band .dHead .bandTitle') as HTMLInputElement | null)?.select();
+      },
+    },
+  ];
+}
 
+export function renderIdeas(main: HTMLElement, b: Band, host: IdeaHost, rerender: () => void) {
+  if (recorder) {
+    const bar = el('div', 'recBar', `<span class="dot"></span><span>${esc(t('Aufnahme läuft'))}</span><span class="recTime">0:00</span>`);
+    const stop = el('button', 'btn', `${icon('stop', 12)}<span>${esc(t('Beenden'))}</span>`);
+    stop.onclick = () => stopRecording();
+    bar.appendChild(stop);
+    main.appendChild(bar);
+    recTick();
+  }
   if (!b.ideas.length) {
-    main.appendChild(el('div', 'bandEmpty', esc(t('Noch keine Ideen. Speichere ein Riff aus dem Editor, nimm ein Memo auf oder notiere eine Textzeile.'))));
+    main.appendChild(el('div', 'bandEmpty', esc(t('Noch keine Ideen.'))));
     return;
   }
-
-  // tag chips
+  const ql = query.trim().toLowerCase();
+  const shown = b.ideas.filter((x) => (!tagFilter || x.tags.includes(tagFilter)) && (!ql || [x.title, x.key, x.mood, x.note, x.text, x.tags.join(' ')].join(' ').toLowerCase().includes(ql)));
+  if (!shown.some((x) => x.id === sel)) sel = shown[0]?.id ?? '';
+  const split = el('div', 'bandSplit');
+  const list = el('div', 'bandList');
+  list.appendChild(searchField(query, (v) => {
+    query = v;
+    rerender();
+  }, 'ideaSearch'));
   const tags = [...new Set(b.ideas.flatMap((x) => x.tags))].sort();
   if (tags.length) {
     const tb = el('div', 'phaseBar');
@@ -97,14 +97,8 @@ export function renderIdeas(main: HTMLElement, b: Band, host: IdeaHost, rerender
       };
       tb.appendChild(c);
     }
-    main.appendChild(tb);
+    list.appendChild(tb);
   }
-
-  const ql = query.trim().toLowerCase();
-  const shown = b.ideas.filter((x) => (!tagFilter || x.tags.includes(tagFilter)) && (!ql || [x.title, x.key, x.mood, x.note, x.text, x.tags.join(' ')].join(' ').toLowerCase().includes(ql)));
-  if (!shown.some((x) => x.id === sel)) sel = shown[0]?.id ?? '';
-  const split = el('div', 'bandSplit');
-  const list = el('div', 'bandList');
   for (const it of shown) {
     const meta = [t(KIND_LABEL[it.kind]), it.key, it.bpm ? `${it.bpm} bpm` : '', it.mood].filter(Boolean).join(' · ');
     const r = el('div', 'bandItem' + (it.id === sel ? ' on' : ''), `<span class="t"><span class="kindIc">${icon(KIND_ICON[it.kind], 12)}</span>${esc(it.title || t('Ohne Titel'))}</span><span class="s">${esc(meta)}</span>`);
@@ -123,73 +117,61 @@ export function renderIdeas(main: HTMLElement, b: Band, host: IdeaHost, rerender
 
 function detail(b: Band, it: Idea, host: IdeaHost, rerender: () => void): HTMLElement {
   const d = el('div', 'bandDetail');
-  const top = el('div', 'detailTop');
-  top.appendChild(el('span', 'kindBig', icon(KIND_ICON[it.kind], 16)));
-  top.appendChild(input(it, 'title', t('Titel'), () => {
-    const x = document.querySelector('#band .bandItem.on .t');
-    if (x) x.lastChild!.textContent = it.title || t('Ohne Titel');
-  }, 'bandTitle'));
-  if (!it.song) {
-    const mk = el('button', 'btn', `${icon('music', 13)}<span>${esc(t('Zu Song machen'))}</span>`);
-    mk.dataset.tip = t('Legt einen Song in der Phase „Idee“ an');
-    mk.onclick = () => {
-      const s = newSong(it.title);
-      s.phase = 'idea';
-      s.key = it.key;
-      s.bpm = it.bpm;
-      s.notes = [it.note, it.text].filter(Boolean).join('\n');
-      b.songs.push(s);
-      it.song = s.id;
-      save();
-      host.openSongs(s.id);
-    };
-    top.appendChild(mk);
-  }
-  top.appendChild(iconBtn('trash', t('Idee löschen'), async () => {
-    if (!(await host.confirm(t('{x} löschen?', { x: it.title || t('Idee') })))) return;
-    if (it.audio) await dbDelete(audioKey(it.id));
-    b.ideas = b.ideas.filter((x) => x !== it);
+  const makeSong = () => {
+    const s = newSong(it.title);
+    s.phase = 'idea';
+    s.key = it.key;
+    s.bpm = it.bpm;
+    s.notes = [it.note, it.text].filter(Boolean).join('\n');
+    b.songs.push(s);
+    it.song = s.id;
     save();
-    rerender();
-  }));
-  d.appendChild(top);
+    host.openSongs(s.id);
+  };
+  let action: HTMLElement | undefined;
+  if (it.kind === 'riff' && it.clip) {
+    action = el('button', 'btn', `${icon('pencil', 13)}<span>${esc(t('In den Editor kopieren'))}</span>`);
+    action.onclick = () => host.useClip(it.clip!);
+  }
+  detailHead(d, {
+    lead: el('span', 'kindBig', icon(KIND_ICON[it.kind], 16)),
+    title: input(it, 'title', t('Titel'), () => {
+      const x = document.querySelector('#band .bandItem.on .t');
+      if (x) x.lastChild!.textContent = it.title || t('Ohne Titel');
+    }, 'bandTitle'),
+    action,
+    menu: () => [
+      ...(!it.song ? [{ icon: 'music' as IconName, label: t('Zu Song machen'), hint: t('Phase „Idee“'), fn: makeSong }, 'sep' as const] : []),
+      { icon: 'trash', label: t('Idee löschen'), danger: true, fn: async () => {
+        if (!(await host.confirm(t('{x} löschen?', { x: it.title || t('Idee') })))) return;
+        if (it.audio) await dbDelete(audioKey(it.id));
+        b.ideas = b.ideas.filter((x) => x !== it);
+        save();
+        rerender();
+      } },
+    ],
+  });
 
   // content
   if (it.kind === 'riff' && it.clip) {
-    const pre = el('pre', 'asciiTab', esc(it.preview || asciiTab(it.clip)));
-    d.appendChild(pre);
-    const use = el('button', 'btn', `${icon('pencil', 13)}<span>${esc(t('In den Editor kopieren'))}</span>`);
-    use.onclick = () => host.useClip(it.clip!);
-    d.appendChild(use);
+    card(d, t('Riff')).appendChild(el('pre', 'asciiTab', esc(it.preview || asciiTab(it.clip))));
   }
   if (it.audio) {
     const box = el('div', 'audioBox');
+    card(d, t('Aufnahme')).appendChild(box);
     const au = el('audio');
     au.controls = true;
     box.appendChild(au);
     box.appendChild(el('span', 'hint', esc(`${it.audio.name}${it.audio.duration ? ' · ' + fmtDur(it.audio.duration) : ''}`)));
-    d.appendChild(box);
     void dbGet<Blob>(audioKey(it.id)).then((blob) => {
       if (blob) au.src = URL.createObjectURL(blob);
       else box.appendChild(el('span', 'hint', esc(t('Audio nicht gefunden (nur auf dem Gerät gespeichert, wo es aufgenommen wurde)'))));
     });
   }
 
-  const cols = el('div', 'gigCols');
-  const left = el('div');
-  const right = el('div');
-  cols.append(left, right);
-  d.appendChild(cols);
-  const sec = (p: HTMLElement, title: string) => {
-    const s = el('section', 'gigSec', `<div class="secTop"><h3>${esc(title)}</h3></div>`);
-    p.appendChild(s);
-    return s;
-  };
-  const field = (p: HTMLElement, label: string, ctl: HTMLElement) => {
-    const r = el('label', 'gigField', `<span>${esc(label)}</span>`);
-    r.appendChild(ctl);
-    p.appendChild(r);
-  };
+  const [left, right] = columns(d);
+  const sec = (p: HTMLElement, title: string) => card(p, title);
+  const field = row;
   const s1 = sec(left, t('Eigenschaften'));
   const tags = el('input', 'pInput');
   tags.placeholder = t('z.B. düster, Drop D, Strophe');

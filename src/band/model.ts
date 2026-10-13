@@ -328,6 +328,8 @@ export interface Band {
   gigs: Gig[];
   gear: Gear;
   ideas: Idea[];
+  /** set up via the wizard or opened from a file; without it the app runs as plain Tabwriter */
+  setup?: boolean;
 }
 
 // ---------- helpers ----------
@@ -379,6 +381,7 @@ export function newBand(name = 'Meine Band'): Band {
 export function normalize(d: any): Band {
   if (!d || d.app !== 'stagecraft') throw new Error('Keine Stagecraft-Datei');
   const b = newBand(d.name ?? 'Band');
+  b.setup = d.setup ?? !!(d.members?.length || d.songs?.length || d.gigs?.length || d.setlists?.length);
   b.members = d.members ?? [];
   b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [] }));
   b.setlists = d.setlists ?? [];

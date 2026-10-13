@@ -3,6 +3,7 @@
 import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, iconBtn, input, select, esc, save } from './dom';
+import { card, row, hint, columns, searchField } from './kit';
 import { openPrintDialog } from '../print';
 import { readXlsx } from './xlsx';
 import { importTicketWorkbook, looksLikeTicketWorkbook } from './ticketsImport';
@@ -27,7 +28,7 @@ export function holderName(b: Band, h: Holder): string {
 
 const pct = (a: number, z: number) => (z > 0 ? Math.min(100, Math.round((a / z) * 100)) : 0);
 
-export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>, flash: (m: string) => void = () => {}) {
+export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>) {
   const tk = g.tickets;
   const tot = ticketTotals(tk);
 
@@ -44,27 +45,9 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
   bar.dataset.tip = t('Hell: eingesammelt · Dunkel: in der Bandkasse');
   d.appendChild(bar);
 
-  const cols = el('div', 'gigCols');
-  const left = el('div');
-  const right = el('div');
-  cols.append(left, right);
-  d.appendChild(cols);
-  const sec = (p: HTMLElement, title: string, extra?: HTMLElement) => {
-    const s = el('section', 'gigSec');
-    const h = el('div', 'secTop', `<h3>${esc(title)}</h3>`);
-    if (extra) h.appendChild(extra);
-    s.appendChild(h);
-    p.appendChild(s);
-    return s;
-  };
-  const field = (p: HTMLElement, label: string, ctl: HTMLElement) => {
-    const r = el('label', 'gigField', `<span>${esc(label)}</span>`);
-    r.appendChild(ctl);
-    p.appendChild(r);
-  };
+  const [left, right] = columns(d);
 
   // ---- prices & split ----
-  const sp = sec(left, t('Preise & Aufteilung'));
   const num = (obj: any, key: string, step = '1') => {
     const i = input(obj, key, '0', () => {}, 'pInput num', 'number');
     i.step = step;
@@ -74,43 +57,29 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
     };
     return i;
   };
-  const pr = el('div', 'tkRow');
-  pr.append(el('span', '', esc(t('VVK'))), num(tk, 'presale', '0.5'), el('span', '', esc(t('Abendkasse'))), num(tk, 'door', '0.5'), el('span', 'unit', '€'));
-  field(sp, t('Preise'), pr);
+  const sp = card(left, t('Preise & Aufteilung'), {
+    addTip: t('Stufe hinzufügen'),
+    add: () => {
+      const last = tk.tiers[tk.tiers.length - 1];
+      tk.tiers.push({ from: (last?.from ?? 0) + 30, share: last?.share ?? 3 });
+      save();
+      rerender();
+    },
+  });
+  row(sp, t('VVK'), num(tk, 'presale', '0.5'), el('span', 'unit', '€'));
+  row(sp, t('Abendkasse'), num(tk, 'door', '0.5'), el('span', 'unit', '€'));
   tk.tiers.sort((a, z) => a.from - z.from);
   tk.tiers.forEach((tr, i) => {
     const r = el('div', 'tkRow');
-    r.append(el('span', '', esc(t('ab Karte'))), num(tr, 'from'), el('span', '', esc(t('Band bekommt'))), num(tr, 'share', '0.5'), el('span', 'unit', esc(t('€ je Karte'))));
+    r.append(el('span', '', esc(t('ab Karte'))), num(tr, 'from'), el('span', '', esc(t('→'))), num(tr, 'share', '0.5'), el('span', 'unit', esc(t('€ je Karte'))));
     if (tk.tiers.length > 1) r.appendChild(iconBtn('xmark', t('Stufe entfernen'), () => { tk.tiers.splice(i, 1); save(); rerender(); }, 'tb'));
-    field(sp, i === 0 ? t('Staffel') : '', r);
+    row(sp, i === 0 ? t('Bandanteil') : '', r);
   });
-  const addTier = el('button', 'btn plain', `${icon('plus', 12)}<span>${esc(t('Stufe hinzufügen'))}</span>`);
-  addTier.onclick = () => {
-    const last = tk.tiers[tk.tiers.length - 1];
-    tk.tiers.push({ from: (last?.from ?? 0) + 30, share: last?.share ?? 3 });
-    save();
-    rerender();
-  };
-  sp.appendChild(addTier);
-  sp.appendChild(el('p', 'hint', esc(t('Beispiel: ab Karte 0 → 3 €, ab Karte 30 → 5 €. Der Rest des VVK-Gelds geht an den Veranstalter.'))));
-  field(sp, t('Abendkasse'), (() => {
-    const r = el('div', 'tkRow');
-    r.append(num(tk, 'doorSold'), el('span', 'unit', esc(t('Karten verkauft (nach dem Gig)'))));
-    return r;
-  })());
-  if (tot.share > 0) {
-    const take = el('button', 'btn', `${icon('checkmark', 12)}<span>${esc(t('Bandanteil als Gage übernehmen'))}</span>`);
-    take.dataset.tip = t('Setzt die Gage dieses Gigs auf {x}', { x: fmtMoney(tot.share) });
-    take.onclick = () => {
-      g.money.fee = Math.round(tot.share * 100) / 100;
-      save();
-      rerender();
-    };
-    sp.appendChild(take);
-  }
+  hint(sp, t('Ab welcher Karte die Band wie viel bekommt. Der Rest des VVK-Gelds geht an den Veranstalter.'));
+  row(sp, t('Abendkasse verkauft'), num(tk, 'doorSold'), el('span', 'unit', esc(t('Karten'))));
 
   // ---- sellers ----
-  const ss = sec(right, t('Verkäufer'));
+  const ss = card(right, t('Verkäufer'));
   const tbl = el('div', 'tkSellers');
   tbl.appendChild(el('div', 'row head', `<span>${t('Wer')}</span><span>${t('erhalten')}</span><span>${t('verfügbar')}</span><span>${t('verkauft')}</span><span>${t('Geld')}</span>`));
   for (const h of holders(b, g)) {
@@ -126,17 +95,19 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
     tbl.appendChild(r);
   }
   ss.appendChild(tbl);
-  ss.appendChild(el('p', 'hint', esc(t('Klick filtert die Käuferliste.'))));
+  hint(ss, t('Klick filtert die Käuferliste.'));
 
   // ---- moves ----
-  const addMove = iconBtn('plus', t('Kartenbewegung hinzufügen'), () => {
-    const hs = holders(b, g);
-    tk.moves.push(tk.moves.length ? newMove('band', hs[1] ?? 'band', 10) : newMove('venue', 'band', 50));
-    save();
-    rerender();
-  }, 'tb');
-  const sm = sec(d, t('Kartenbewegungen'), addMove);
-  if (!tk.moves.length) sm.appendChild(el('div', 'hint', esc(t('Zuerst: Kontingent vom Veranstalter an die Bandkasse. Dann an die Verkäufer verteilen.'))));
+  const sm = card(d, t('Kartenbewegungen'), {
+    addTip: t('Kartenbewegung hinzufügen'),
+    add: () => {
+      const hs = holders(b, g);
+      tk.moves.push(tk.moves.length ? newMove('band', hs[1] ?? 'band', 10) : newMove('venue', 'band', 50));
+      save();
+      rerender();
+    },
+  });
+  if (!tk.moves.length) hint(sm, t('Zuerst: Kontingent vom Veranstalter an die Bandkasse. Dann an die Verkäufer verteilen.'));
   const opts: [string, string][] = [['venue', t('Veranstalter')], ...holders(b, g).map((h) => [h, holderName(b, h)] as [string, string])];
   for (const mv of tk.moves) {
     const r = el('div', 'moveRow');
@@ -152,41 +123,26 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
   }
 
   // ---- buyers ----
-  const bh = el('span', 'btnGroup');
-  const q = el('input', 'pInput search');
-  q.type = 'search';
-  q.placeholder = t('Suchen …');
-  q.value = query;
-  q.oninput = () => {
-    query = q.value;
-    const pos = q.selectionStart;
+  const q = searchField(query, (v) => {
+    query = v;
     rerender();
-    const nq = document.querySelector('#band .tkBuyers .search') as HTMLInputElement | null;
-    nq?.focus();
-    nq?.setSelectionRange(pos, pos);
-  };
-  const pr2 = el('button', 'btn', `${icon('printer', 13)}<span>${esc(t('Türliste'))}</span>`);
-  pr2.dataset.tip = t('Liste für den Einlass: Türliste und hinterlegte Karten');
-  pr2.onclick = () => printDoorList(b, g);
-  const add = el('button', 'btn primary', `${icon('plus', 12)}<span>${esc(t('Käufer'))}</span>`);
-  add.onclick = () => {
-    const by = newBuyer(sellerFilter || holders(b, g)[1] || 'band');
-    tk.buyers.push(by);
-    save();
-    rerender();
-    const rows = document.querySelectorAll<HTMLInputElement>('#band .buyerRow input.name');
-    rows[rows.length - 1]?.focus();
-  };
-  const imp = iconBtn('folder', t('Aus Excel importieren (alte Karten-VVK-Liste)'), () => importExcel(b, g, rerender, confirm, flash));
-  bh.append(q, imp, pr2, add);
-  const sb = el('section', 'gigSec tkBuyers');
-  const top = el('div', 'secTop', `<h3>${esc(sellerFilter ? t('Käufer von {x}', { x: holderName(b, sellerFilter) }) : t('Käufer'))}</h3>`);
-  top.appendChild(bh);
-  sb.appendChild(top);
-  d.appendChild(sb);
+  }, 'buyerSearch');
+  const sb = card(d, sellerFilter ? t('Käufer von {x}', { x: holderName(b, sellerFilter) }) : t('Käufer'), {
+    cls: 'tkBuyers',
+    extra: [q],
+    addTip: t('Käufer hinzufügen'),
+    add: () => {
+      const by = newBuyer(sellerFilter || holders(b, g)[1] || 'band');
+      tk.buyers.push(by);
+      save();
+      rerender();
+      const rows = document.querySelectorAll<HTMLInputElement>('#band .buyerRow input.name');
+      rows[rows.length - 1]?.focus();
+    },
+  });
   const ql = query.trim().toLowerCase();
   const list = tk.buyers.filter((x) => (!sellerFilter || x.seller === sellerFilter) && (!ql || [x.name, x.note].join(' ').toLowerCase().includes(ql)));
-  if (!tk.buyers.length) sb.appendChild(el('div', 'hint pad', esc(t('Pro Käufer: Name, Verkäufer und wie viele Karten – normal (Karte in der Hand), hinterlegt (an der Kassa) oder Türliste (zahlt vor Ort).'))));
+  if (!tk.buyers.length) hint(sb, t('Pro Käufer: Name, Verkäufer und wie viele Karten – normal (Karte in der Hand), hinterlegt (an der Kassa) oder Türliste (zahlt vor Ort).'));
   else {
     sb.appendChild(el('div', 'buyerRow head', `<span>${t('Name')}</span><span>${t('Verkäufer')}</span><span data-tip="${esc(t('Karte wird übergeben'))}">${t('normal')}</span><span data-tip="${esc(t('an der Kassa hinterlegt'))}">${t('hinterl.')}</span><span data-tip="${esc(t('steht auf der Liste, zahlt an der Tür'))}">${t('Tür')}</span><span>${t('Betrag')}</span><span data-tip="${esc(t('Karte übergeben · Geld erhalten · Geld in der Bandkasse'))}">${t('Status')}</span><span></span>`));
     const sOpts = holders(b, g).map((h) => [h, holderName(b, h)] as [string, string]);
@@ -242,7 +198,7 @@ function buyerRow(b: Band, g: Gig, by: Buyer, sOpts: [string, string][], rerende
 
 // ---------------- printing ----------------
 
-function importExcel(b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>, flash: (m: string) => void) {
+export function importExcel(b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>, flash: (m: string) => void) {
   const inp = el('input');
   inp.type = 'file';
   inp.accept = '.xlsx';
@@ -266,7 +222,7 @@ function importExcel(b: Band, g: Gig, rerender: () => void, confirm: (m: string)
   inp.click();
 }
 
-function printDoorList(b: Band, g: Gig) {
+export function printDoorList(b: Band, g: Gig) {
   const tk = g.tickets;
   const rows = tk.buyers.filter((x) => x.held || x.door).sort((a, z) => a.name.localeCompare(z.name));
   const body = `<style>

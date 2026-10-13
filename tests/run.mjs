@@ -12,6 +12,7 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, locale: 'de-AT' });
 await ctx.addInitScript(() => {
   localStorage.setItem('tabwriter.prefs', JSON.stringify({ onboarded: true, lang: 'de' }));
+  indexedDB.deleteDatabase('tabwriter'); // every test starts empty
   window.print = () => (window.__printed = (window.__printed || 0) + 1);
 });
 const page = await ctx.newPage();
@@ -24,7 +25,6 @@ async function test(name, fn) {
   try {
     await page.goto(url);
     await page.waitForFunction(() => window.app);
-    await page.evaluate(() => indexedDB.deleteDatabase('tabwriter'));
     await fn();
     console.log(`  ✓ ${name}`);
   } catch (e) {
@@ -208,39 +208,73 @@ await test('Tickets: import of the old Excel presale workbook', async () => {
   eq(r, [['Ben'], 3, 1, 'Testfest', '2030-05-01', 12, 10, 3, 2, 36, 24, 40, 1, 8], 'import');
 });
 
-await test('Tickets UI: presale tab renders', async () => {
-  await page.click('.flowStep:nth-child(1)');
-  await page.click('.bandTop .tbtn');
-  await page.keyboard.press('Meta+5');
-  await page.click('.bandTop .tbtn');
-  await page.click('.gigSeg button:nth-child(2)');
-  await page.waitForSelector('.tkSummary');
-  const n = await page.$$eval('.tkSummary .tkTile', (x) => x.length);
-  if (n < 4 || !(await page.$('.tkSellers'))) throw new Error(`tiles ${n}`);
-  await page.screenshot({ path: process.env.SHOT || '/dev/null' }).catch(() => {});
+/** set up a band through the wizard on the start screen */
+async function bandWizard(name, members) {
+  await page.waitForSelector('.flowSetup');
+  await page.click('.flowSetup');
+  await page.keyboard.type(name);
+  await page.keyboard.press('Enter');
+  for (let i = 0; i < members.length; i++) {
+    if (i) await page.click('.wizBody .btn.plain');
+    const ins = await (await page.$$('.wizRow'))[i].$$('input');
+    await ins[0].fill(members[i][0]);
+    await ins[1].fill(members[i][1]);
+  }
+  await page.click('.wizFoot .btn.primary');
+  await page.fill('.wizBody textarea', 'Song A\nSong B');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForSelector('#band:not(.hidden) .bandSw');
+}
+
+await test('Tabwriter works without a band', async () => {
+  await page.waitForSelector('.flowSetup');
+  await page.click('#libDemo');
+  await page.waitForTimeout(600);
+  const inEditor = await page.evaluate(() => document.getElementById('library').classList.contains('hidden') && document.getElementById('band').classList.contains('hidden'));
+  await page.click('#homeBtn');
+  const back = await page.evaluate(() => !document.getElementById('library').classList.contains('hidden') && !!document.querySelector('.flowSetup'));
+  eq([inEditor, back], [true, true], 'editor, back to start');
+});
+
+await test('Band wizard: band shell with overview', async () => {
+  await bandWizard('Testband', [['A', 'Gitarre, Gesang'], ['B', 'Drums']]);
+  const r = await page.evaluate(() => [document.querySelector('.bandSw b').textContent, document.querySelector('.bandNav.home.on') !== null, !!document.querySelector('#band .libActions')]);
+  eq(r, ['Testband', true, true], 'name, overview, Tabwriter block');
 });
 
 await test('Stage: input list and cables suggested from gear', async () => {
-  await page.click('.flowStep:nth-child(1)');
-  for (const [n, role] of [['A', 'Gitarre, Gesang'], ['B', 'Drums']]) {
-    await page.click('.bandTop .tbtn');
-    const rows = await page.$$('.bandTable .row.members');
-    const ins = await rows[rows.length - 1].$$('input');
-    await ins[0].fill(n);
-    await ins[1].fill(role);
-  }
+  await bandWizard('Testband', [['A', 'Gitarre, Gesang'], ['B', 'Drums']]);
   await page.keyboard.press('Meta+3');
-  await page.click('.stageSeg button:nth-child(3)');
-  await page.click('.subBar .btn');
+  await page.click('.seg.tabs button:nth-child(3)');
+  await page.click('.secTools .tb:not(.add)');
   const ch = await page.$$eval('.bandTable .row.inputs:not(.head)', (x) => x.length);
   if (ch < 8) throw new Error(`only ${ch} inputs`);
 });
 
-await test('Home flow and navigation', async () => {
+await test('Gig wizard and presale tab', async () => {
+  await bandWizard('Testband', [['A', 'Bass']]);
+  await page.keyboard.press('Meta+5');
+  await page.click('.pageHead .btn.primary');
+  await page.fill('.wizBody input[type=text]', 'Club');
+  await page.keyboard.press('Enter');
+  await page.click('.wizFoot .btn.primary');
+  await page.click('.gigSeg button:nth-child(2)');
+  await page.waitForSelector('.tkSummary');
+  const r = await page.evaluate(() => [document.querySelectorAll('#band .bandItem').length, document.querySelectorAll('.tkSummary .tkTile').length]);
+  eq(r, [1, 5], 'one gig, five tiles');
+});
+
+await test('Navigation: overview from every page, back to the editor', async () => {
+  await bandWizard('Testband', [['A', 'Bass']]);
+  await page.click('.libActions .tile:nth-child(3)');
+  await page.waitForTimeout(600);
+  await page.click('#homeBtn');
   await page.keyboard.press('Meta+2');
-  await page.click('.bandNav.home');
-  const home = await page.evaluate(() => !document.getElementById('library').classList.contains('hidden'));
-  eq(home, true, 'back home');
+  await page.click('.bandNav.sub');
+  const inEditor = await page.evaluate(() => document.getElementById('band').classList.contains('hidden'));
+  await page.click('#homeBtn');
+  const home = await page.evaluate(() => !!document.querySelector('.bandNav.home.on'));
+  eq([inEditor, home], [true, true], 'editor, overview');
 });
 
 await test('No uncaught errors', async () => {

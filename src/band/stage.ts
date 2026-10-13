@@ -2,6 +2,7 @@
 import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, iconBtn, input, select, moveItem, esc, save } from './dom';
+import { pageHead, tabs, card, hint, toggle, popMenu } from './kit';
 import { openPrintDialog } from '../print';
 import {
   type Band, type Gig, type GearItem, type GearKind, type OwnerType, type Cable,
@@ -62,23 +63,19 @@ function renumber(b: Band, member: string) {
 
 export function renderStage(main: HTMLElement, b: Band, rerender: () => void, confirmFn: (msg: string) => Promise<boolean>) {
   ask = confirmFn;
-  const top = el('div', 'bandTop');
-  top.appendChild(el('h2', '', esc(t('Bühne & Technik'))));
-  const seg = el('div', 'seg stageSeg');
-  const tabs: [StageTab, string][] = [['gear', t('Equipment')], ['plan', t('Bühnenplan')], ['inputs', t('Kanäle')], ['cables', t('Kabel')], ['bom', t('Stückliste')]];
-  for (const [k, l] of tabs) {
-    const btn = el('button', sub === k ? 'on' : '', esc(l));
-    btn.onclick = () => {
+  const tabItems: [StageTab, string][] = [['gear', t('Equipment')], ['plan', t('Bühnenplan')], ['inputs', t('Kanäle')], ['cables', t('Kabel')], ['bom', t('Stückliste')]];
+  const pr = iconBtn('printer', t('Drucken'), () => popMenu(pr, [
+    { icon: 'stagePlan', label: t('Rider drucken (Bühnenplan, Kanäle, Monitore, Backline)'), fn: () => printRider(b, null) },
+    { icon: 'list', label: t('Packliste drucken'), fn: () => printPacking(b) },
+  ]), 'tbtn');
+  pageHead(main, {
+    title: t('Bühne & Technik'),
+    actions: [pr],
+    tabs: tabs(tabItems, sub, (k) => {
       sub = k;
       rerender();
-    };
-    seg.appendChild(btn);
-  }
-  top.appendChild(el('span', 'spacer'));
-  top.appendChild(seg);
-  top.appendChild(el('span', 'spacer'));
-  top.appendChild(iconBtn('printer', t('Rider drucken (Bühnenplan, Kanäle, Monitore, Backline)'), () => printRider(b, null), 'tbtn'));
-  main.appendChild(top);
+    }),
+  });
   if (sub === 'gear') renderGear(main, b, rerender);
   else if (sub === 'plan') renderPlan(main, b, rerender);
   else if (sub === 'inputs') renderInputs(main, b, rerender);
@@ -99,7 +96,6 @@ function defaultKind(b: Band, member: string): GearKind {
 }
 
 function renderGear(main: HTMLElement, b: Band, rerender: () => void) {
-  if (!b.members.length) main.appendChild(el('div', 'bandEmpty small', esc(t('Tipp: Lege zuerst Mitglieder an, dann bekommt jedes seine eigene Signalkette.'))));
   const groups: [string, string][] = [...b.members.map((m) => [m.id, m.name || '?'] as [string, string]), ['', t('Gemeinsam (Band, PA, Pult …)')]];
   for (const [mid, name] of groups) {
     const items = chainOf(b, mid);
@@ -247,7 +243,7 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
   wrap.appendChild(canvas);
   const side = el('div', 'planSide');
   // stage size
-  const sz = el('div', 'gigSec', `<h3>${esc(t('Bühne'))}</h3>`);
+  const sz = card(side, t('Bühne'));
   const row = el('div', 'xyRow');
   const w = input(s, 'width', '', () => {}, 'pInput num', 'number');
   const d = input(s, 'depth', '', () => {}, 'pInput num', 'number');
@@ -260,14 +256,13 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
   };
   row.append(el('span', '', esc(t('Breite'))), w, el('span', '', esc(t('Tiefe'))), d, el('span', 'unit', 'm'));
   sz.appendChild(row);
-  side.appendChild(sz);
   // selection: exact position
-  const sec = el('div', 'gigSec');
   const isMember = selected.startsWith('m:');
   const g = isMember ? null : b.gear.items.find((x) => x.id === selected && x.onStage);
   const pos = isMember ? memberPos(b, selected.slice(2)) : g;
   if (pos) {
-    sec.innerHTML = `<h3>${esc(isMember ? memberName(b, selected.slice(2)) : g!.name || kindLabel(g!.kind))}</h3>`;
+    const rm = g ? [iconBtn('xmark', t('Vom Plan nehmen'), () => { g.onStage = false; selected = ''; save(); rerender(); }, 'tb')] : [];
+    const sec = card(side, isMember ? memberName(b, selected.slice(2)) : g!.name || kindLabel(g!.kind), { extra: rm });
     const xy = el('div', 'xyRow');
     const xi = input(pos, 'x', '', undefined, 'pInput num', 'number');
     const yi = input(pos, 'y', '', undefined, 'pInput num', 'number');
@@ -280,21 +275,10 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
     };
     xy.append(el('span', '', 'X'), xi, el('span', '', 'Y'), yi, el('span', 'unit', 'm'));
     sec.appendChild(xy);
-    sec.appendChild(el('p', 'hint', esc(t('X von links, Y von der Bühnenkante (Sicht Publikum).'))));
-    if (g) {
-      const rm = el('button', 'btn', esc(t('Vom Plan nehmen')));
-      rm.onclick = () => {
-        g.onStage = false;
-        selected = '';
-        save();
-        rerender();
-      };
-      sec.appendChild(rm);
-    }
-  } else sec.innerHTML = `<h3>${esc(t('Auswahl'))}</h3><p class="hint">${esc(t('Element anklicken oder ziehen. Position auch exakt in Metern eingeben.'))}</p>`;
-  side.appendChild(sec);
+    hint(sec, t('X von links, Y von der Bühnenkante (Sicht Publikum).'));
+  } else hint(card(side, t('Auswahl')), t('Element anklicken oder ziehen. Position auch exakt in Metern eingeben.'));
   // add
-  const add = el('div', 'gigSec', `<h3>${esc(t('Hinzufügen'))}</h3>`);
+  const add = card(side, t('Auf den Plan setzen'));
   const chips = el('div', 'lineup');
   for (const k of ['monitor', 'amp', 'di', 'power', 'keys', 'drums', 'mic', 'pa'] as GearKind[]) {
     const c = el('button', 'chipBtn', esc(kindLabel(k)));
@@ -312,8 +296,7 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
     chips.appendChild(c);
   }
   add.appendChild(chips);
-  add.appendChild(el('p', 'hint', esc(t('Geräte aus „Equipment“ setzt du dort mit dem Bühnen-Symbol auf den Plan.'))));
-  side.appendChild(add);
+  hint(add, t('Geräte aus „Equipment“ setzt du dort mit dem Bühnen-Symbol auf den Plan.'));
   wrap.appendChild(side);
   main.appendChild(wrap);
 
@@ -390,65 +373,52 @@ function generateInputs(b: Band) {
 }
 
 function renderInputs(main: HTMLElement, b: Band, rerender: () => void) {
-  const bar = el('div', 'subBar');
-  const gen = el('button', 'btn', `${icon('sparkles', 14)}<span>${esc(t('Aus Mitgliedern & Equipment vorschlagen'))}</span>`);
-  gen.onclick = async () => {
+  const gen = iconBtn('sparkles', t('Aus Mitgliedern & Equipment vorschlagen'), async () => {
     if (b.gear.inputs.length && !(await ask(t('Bestehende Kanalliste ersetzen?')))) return;
     generateInputs(b);
     save();
     rerender();
-  };
-  bar.appendChild(gen);
-  bar.appendChild(el('span', 'spacer'));
-  bar.appendChild(iconBtn('plus', t('Kanal hinzufügen'), () => {
-    b.gear.inputs.push(newInput((b.gear.inputs[b.gear.inputs.length - 1]?.ch ?? 0) + 1));
-    save();
-    rerender();
-  }, 'tbtn'));
-  main.appendChild(bar);
-  if (!b.gear.inputs.length) main.appendChild(el('div', 'bandEmpty small', esc(t('Noch keine Kanäle. Lass dir eine Liste vorschlagen oder lege Kanäle mit + an.'))));
+  }, 'tb');
+  const c = card(main, t('Kanäle'), {
+    extra: [gen],
+    addTip: t('Kanal hinzufügen'),
+    add: () => {
+      b.gear.inputs.push(newInput((b.gear.inputs[b.gear.inputs.length - 1]?.ch ?? 0) + 1));
+      save();
+      rerender();
+    },
+  });
+  if (!b.gear.inputs.length) hint(c, t('Noch keine Kanäle. ✦ schlägt eine Liste aus Mitgliedern und Equipment vor.'));
   else {
     const tbl = el('div', 'bandTable');
     tbl.appendChild(el('div', 'row head inputs', `<span>${t('Kanal')}</span><span>${t('Quelle')}</span><span>${t('Gerät')}</span><span>${t('Mikro / DI')}</span><span>${t('Stativ')}</span><span>48V</span><span>${t('Notiz')}</span><span></span>`));
-    b.gear.inputs.forEach((c, i) => {
+    b.gear.inputs.forEach((ci, i) => {
       const r = el('div', 'row inputs');
-      const ch = input(c, 'ch', '', undefined, 'pInput num', 'number');
-      r.appendChild(ch);
-      r.appendChild(input(c, 'source', t('z.B. Kick')));
-      r.appendChild(select([['', '–'], ...b.gear.items.map((g) => [g.id, `${g.name || kindLabel(g.kind)}${g.member ? ' · ' + memberName(b, g.member) : ''}`] as [string, string])], c.gear, (v) => { c.gear = v; save(); }));
-      const mic = input(c, 'mic', 'SM58');
+      r.appendChild(input(ci, 'ch', '', undefined, 'pInput num', 'number'));
+      r.appendChild(input(ci, 'source', t('z.B. Kick')));
+      r.appendChild(select([['', '–'], ...b.gear.items.map((g) => [g.id, `${g.name || kindLabel(g.kind)}${g.member ? ' · ' + memberName(b, g.member) : ''}`] as [string, string])], ci.gear, (v) => { ci.gear = v; save(); }));
+      const mic = input(ci, 'mic', 'SM58');
       mic.setAttribute('list', 'micList');
       r.appendChild(mic);
-      r.appendChild(select([['', '–'], ['groß', t('groß')], ['klein', t('klein')], ['Clip', 'Clip']], c.stand, (v) => { c.stand = v; save(); }));
-      const ph = el('input');
-      ph.type = 'checkbox';
-      ph.checked = c.phantom;
-      ph.onchange = () => { c.phantom = ph.checked; save(); };
-      r.appendChild(ph);
-      r.appendChild(input(c, 'note', t('z.B. Insert Comp')));
+      r.appendChild(select([['', '–'], ['groß', t('groß')], ['klein', t('klein')], ['Clip', 'Clip']], ci.stand, (v) => { ci.stand = v; save(); }));
+      r.appendChild(toggle(ci.phantom, (v) => { ci.phantom = v; save(); }));
+      r.appendChild(input(ci, 'note', t('z.B. Insert Comp')));
       const tools = el('span', 'tools');
       tools.appendChild(iconBtn('chevronUp', t('Nach oben'), () => { moveItem(b.gear.inputs, i, -1); renumberInputs(b); save(); rerender(); }, 'tb'));
       tools.appendChild(iconBtn('xmark', t('Entfernen'), () => { b.gear.inputs.splice(i, 1); save(); rerender(); }, 'tb'));
       r.appendChild(tools);
       tbl.appendChild(r);
     });
-    main.appendChild(tbl);
+    c.appendChild(tbl);
     const dl = el('datalist');
     dl.id = 'micList';
     for (const m of ['SM58', 'SM57', 'Beta 52', 'Beta 91', 'D112', 'e604', 'e906', 'MD421', 'Kondensator', 'DI', 'DI (aktiv)', 'Line']) dl.appendChild(Object.assign(el('option'), { value: m }));
-    main.appendChild(dl);
+    c.appendChild(dl);
   }
 
   // monitors
-  const mh = el('div', 'subBar', `<h3>${esc(t('Monitore'))}</h3>`);
-  mh.appendChild(el('span', 'spacer'));
-  mh.appendChild(iconBtn('plus', t('Monitorweg hinzufügen'), () => {
-    b.gear.monitors.push(newMonitor(b.gear.monitors.length + 1));
-    save();
-    rerender();
-  }, 'tbtn'));
-  main.appendChild(mh);
-  if (!b.gear.monitors.length) main.appendChild(el('div', 'hint pad', esc(t('Wedges oder In-Ear-Wege und wer sie hört.'))));
+  const mc = card(main, t('Monitore'), { addTip: t('Monitorweg hinzufügen'), add: () => { b.gear.monitors.push(newMonitor(b.gear.monitors.length + 1)); save(); rerender(); } });
+  if (!b.gear.monitors.length) hint(mc, t('Wedges oder In-Ear-Wege und wer sie hört.'));
   for (const mo of b.gear.monitors) {
     const r = el('div', 'monRow');
     r.appendChild(input(mo, 'name', 'Mon 1'));
@@ -456,14 +426,14 @@ function renderInputs(main: HTMLElement, b: Band, rerender: () => void) {
     const ch = el('div', 'lineup');
     for (const m of b.members) {
       const on = mo.members.includes(m.id);
-      const c = el('button', 'chipBtn' + (on ? ' on' : ''), esc(m.name || '?'));
-      c.onclick = () => { mo.members = on ? mo.members.filter((x) => x !== m.id) : [...mo.members, m.id]; save(); rerender(); };
-      ch.appendChild(c);
+      const cb = el('button', 'chipBtn' + (on ? ' on' : ''), esc(m.name || '?'));
+      cb.onclick = () => { mo.members = on ? mo.members.filter((x) => x !== m.id) : [...mo.members, m.id]; save(); rerender(); };
+      ch.appendChild(cb);
     }
     r.appendChild(ch);
     r.appendChild(input(mo, 'note', t('Mix-Wunsch, z.B. viel Vox')));
     r.appendChild(iconBtn('xmark', t('Entfernen'), () => { b.gear.monitors = b.gear.monitors.filter((x) => x !== mo); save(); rerender(); }, 'tb'));
-    main.appendChild(r);
+    mc.appendChild(r);
   }
 }
 
@@ -536,42 +506,37 @@ function generateCables(b: Band) {
 }
 
 function renderCables(main: HTMLElement, b: Band, rerender: () => void) {
-  const bar = el('div', 'subBar');
-  const gen = el('button', 'btn', `${icon('sparkles', 14)}<span>${esc(t('Aus Signalketten & Kanälen vorschlagen'))}</span>`);
-  gen.onclick = async () => {
+  const gen = iconBtn('sparkles', t('Aus Signalketten & Kanälen vorschlagen'), async () => {
     if (b.gear.cables.length && !(await ask(t('Bestehende Kabelliste ersetzen?')))) return;
     generateCables(b);
     save();
     rerender();
-  };
-  bar.appendChild(gen);
-  bar.appendChild(el('span', 'spacer'));
-  bar.appendChild(iconBtn('plus', t('Kabel hinzufügen'), () => { b.gear.cables.push(newCable()); save(); rerender(); }, 'tbtn'));
-  main.appendChild(bar);
-  if (!b.gear.cables.length) return main.appendChild(el('div', 'bandEmpty small', esc(t('Noch keine Kabel. Lass dir eine Liste vorschlagen oder lege Kabel mit + an.'))));
+  }, 'tb');
+  const c = card(main, t('Kabel'), { extra: [gen], addTip: t('Kabel hinzufügen'), add: () => { b.gear.cables.push(newCable()); save(); rerender(); } });
+  if (!b.gear.cables.length) return hint(c, t('Noch keine Kabel. ✦ schlägt eine Liste aus Signalketten und Kanälen vor.'));
   const dl = el('datalist');
   dl.id = 'endpoints';
   for (const o of endpointOptions(b)) dl.appendChild(Object.assign(el('option'), { value: o }));
-  main.appendChild(dl);
+  c.appendChild(dl);
   const tbl = el('div', 'bandTable');
   tbl.appendChild(el('div', 'row head cables', `<span>${t('Von')}</span><span>${t('Nach')}</span><span>${t('Typ')}</span><span>${t('Länge (m)')}</span><span>${t('Anzahl')}</span><span>${t('Besitzer')}</span><span></span>`));
-  b.gear.cables.forEach((c) => {
+  b.gear.cables.forEach((cb) => {
     const r = el('div', 'row cables');
-    const f = input(c, 'from', t('Von'));
-    const to = input(c, 'to', t('Nach'));
+    const f = input(cb, 'from', t('Von'));
+    const to = input(cb, 'to', t('Nach'));
     f.setAttribute('list', 'endpoints');
     to.setAttribute('list', 'endpoints');
     r.append(f, to);
-    r.appendChild(select(CABLE_TYPES.map(([k, l]) => [k, t(l)] as [string, string]), c.type, (v) => { c.type = v as Cable['type']; save(); }));
-    const len = input(c, 'length', '–', undefined, 'pInput num', 'number');
-    if (!c.length) len.value = '';
+    r.appendChild(select(CABLE_TYPES.map(([k, l]) => [k, t(l)] as [string, string]), cb.type, (v) => { cb.type = v as Cable['type']; save(); }));
+    const len = input(cb, 'length', '–', undefined, 'pInput num', 'number');
+    if (!cb.length) len.value = '';
     r.appendChild(len);
-    r.appendChild(input(c, 'count', '1', undefined, 'pInput num', 'number'));
-    r.appendChild(ownerSelect(b, c, () => {}));
-    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { b.gear.cables = b.gear.cables.filter((x) => x !== c); save(); rerender(); }, 'tb'));
+    r.appendChild(input(cb, 'count', '1', undefined, 'pInput num', 'number'));
+    r.appendChild(ownerSelect(b, cb, () => {}));
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { b.gear.cables = b.gear.cables.filter((x) => x !== cb); save(); rerender(); }, 'tb'));
     tbl.appendChild(r);
   });
-  main.appendChild(tbl);
+  c.appendChild(tbl);
 }
 
 // ---------------- bill of materials ----------------
@@ -598,7 +563,8 @@ export function bom(b: Band): BomRow[] {
 
 function renderBom(main: HTMLElement, b: Band) {
   const rows = bom(b);
-  if (!rows.length) return main.appendChild(el('div', 'bandEmpty small', esc(t('Die Stückliste entsteht aus Equipment, Kanälen und Kabeln.'))));
+  const c = card(main, t('Stückliste'));
+  if (!rows.length) return hint(c, t('Die Stückliste entsteht aus Equipment, Kanälen und Kabeln.'));
   const tbl = el('div', 'bandTable');
   tbl.appendChild(el('div', 'row head bom', `<span>${t('Anzahl')}</span><span>${t('Was')}</span><span>${t('Details')}</span>`));
   let last = '';
@@ -609,11 +575,12 @@ function renderBom(main: HTMLElement, b: Band) {
     }
     tbl.appendChild(el('div', 'row bom', `<span class="num">${r.count}×</span><span>${esc(r.what)}</span><span>${esc(r.detail)}</span>`));
   }
-  main.appendChild(tbl);
-  const pr = el('button', 'btn', `${icon('printer', 14)}<span>${esc(t('Packliste drucken'))}</span>`);
-  pr.style.marginTop = '12px';
-  pr.onclick = () => printHtml(`<h1>${esc(t('Packliste'))} – ${esc(b.name)}</h1><table>${rows.map((r) => `<tr><td style="width:50px">☐ ${r.count}×</td><td>${esc(r.what)}</td><td>${esc(r.detail)}</td><td>${esc(r.owner)}</td></tr>`).join('')}</table>`);
-  main.appendChild(pr);
+  c.appendChild(tbl);
+}
+
+function printPacking(b: Band) {
+  const rows = bom(b);
+  printHtml(`<h1>${esc(t('Packliste'))} – ${esc(b.name)}</h1><table>${rows.map((r) => `<tr><td style="width:50px">☐ ${r.count}×</td><td>${esc(r.what)}</td><td>${esc(r.detail)}</td><td>${esc(r.owner)}</td></tr>`).join('')}</table>`);
 }
 
 // ---------------- rider / printing ----------------
