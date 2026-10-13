@@ -301,6 +301,43 @@ await test('Songs: to-do board moves cards between columns', async () => {
   eq(r, [0, 1, 0], 'card in "In Arbeit"');
 });
 
+await test('Setlist: drag songs in, reorder, print', async () => {
+  await bandWizard('Testband', [['A', 'b4']]);
+  await page.keyboard.press('Meta+2');
+  for (const name of ['Eins', 'Zwei']) {
+    await page.click('.pageHead .btn.primary');
+    await page.click('.wizChoice:has-text("Noch keine Noten")');
+    await page.click('.wizFoot .btn.primary');
+    await page.fill('.wizBody input', name);
+    await page.click('.wizFoot .btn.primary');
+  }
+  await page.keyboard.press('Meta+4');
+  await page.click('.pageHead .btn.primary');
+  await page.keyboard.type('Set');
+  await page.keyboard.press('Enter');
+  await page.click('.wizFoot .btn.primary');
+  const drag = async (from, to, below = false) => {
+    const a = await (await page.$(from)).boundingBox();
+    const b = await (await page.$(to)).boundingBox();
+    await page.mouse.move(a.x + 30, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + 60, a.y + a.height / 2 + 10, { steps: 4 });
+    await page.mouse.move(b.x + 80, below ? b.y + b.height - 3 : b.y + 3, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+  };
+  await drag('.shelfRow:has-text("Eins")', '.setItems');
+  await drag('.shelfRow:has-text("Zwei")', '.setRow', false);
+  const order1 = await page.$$eval('.setRow .name', (x) => x.map((e) => e.textContent));
+  await drag('.setRow:nth-child(1) .meta', '.setRow:nth-child(2)', true);
+  const order2 = await page.$$eval('.setRow .name', (x) => x.map((e) => e.textContent));
+  await page.click('.dHead .tbtn');
+  await page.click('#kitPop button:nth-child(1)');
+  await page.waitForTimeout(300);
+  const printed = await page.evaluate(() => [window.__printed || 0, !!document.querySelector('#printArea.setPrint')]);
+  eq([order1, order2, printed[1]], [['Zwei', 'Eins'], ['Eins', 'Zwei'], true], 'drop, reorder, print');
+});
+
 await test('No uncaught errors', async () => {
   if (errors.length) throw new Error(errors.join('\n'));
 });

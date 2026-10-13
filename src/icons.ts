@@ -80,6 +80,8 @@ export const ICONS = {
   sliders: '<path d="M4 2.4v11.2M8 2.4v11.2M12 2.4v11.2"/><rect x="2.6" y="8.4" width="2.8" height="2" rx=".6" fill="currentColor"/><rect x="6.6" y="4.4" width="2.8" height="2" rx=".6" fill="currentColor"/><rect x="10.6" y="9.6" width="2.8" height="2" rx=".6" fill="currentColor"/>',
   radio: '<rect x="4.4" y="5.4" width="7.2" height="8.6" rx="1.4"/><path d="M8 5.4V2M6.4 8.4h3.2"/><path d="M3 3.6a4.8 4.8 0 0 1 2-1.6M13 3.6a4.8 4.8 0 0 0-2-1.6"/>',
   box: '<path d="M2.4 4.8 8 2l5.6 2.8v6.4L8 14l-5.6-2.8z"/><path d="M2.4 4.8 8 7.6l5.6-2.8M8 7.6V14"/>',
+  grip: '<circle cx="6" cy="4" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="4" r=".9" fill="currentColor" stroke="none"/><circle cx="6" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="12" r=".9" fill="currentColor" stroke="none"/>',
+  album: '<circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="1.6"/><path d="M8 3.4a4.6 4.6 0 0 1 4.6 4.6" stroke-width="1"/>',
   kanban: '<rect x="1.8" y="2.4" width="3.6" height="10.8" rx="1"/><rect x="6.2" y="2.4" width="3.6" height="7.6" rx="1"/><rect x="10.6" y="2.4" width="3.6" height="5" rx="1"/>',
   image: '<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><circle cx="5.6" cy="6" r="1.2"/><path d="m2.2 12 3.8-3.6 2.6 2.4 2-1.8 3.4 3"/>',
   upload: '<path d="M8 10.4V2.6M5 5.4 8 2.4l3 3"/><path d="M2.6 10.4v1.8c0 .8.6 1.4 1.4 1.4h8c.8 0 1.4-.6 1.4-1.4v-1.8"/>',

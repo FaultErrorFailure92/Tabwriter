@@ -176,7 +176,7 @@ function importAudio(b: Band, rerender: () => void, host: IdeaHost) {
   inp.click();
 }
 
-function audioDuration(f: Blob): Promise<number> {
+export function audioDuration(f: Blob): Promise<number> {
   return new Promise((res) => {
     const a = new Audio();
     a.preload = 'metadata';
@@ -233,8 +233,8 @@ export function asciiTab(c: Clip): string {
 /** audio blobs for the band file export */
 export async function collectAudio(b: Band): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  for (const it of b.ideas) {
-    if (!it.audio) continue;
+  const withAudio = [...b.ideas.filter((x) => x.audio), ...b.songs.flatMap((s) => s.media.filter((m) => m.audio))];
+  for (const it of withAudio) {
     const blob = await dbGet<Blob>(audioKey(it.id));
     if (!blob) continue;
     out[it.id] = await new Promise<string>((res) => {

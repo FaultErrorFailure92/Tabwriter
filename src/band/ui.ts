@@ -2,16 +2,16 @@
 // Every page uses the same building blocks from kit.ts.
 import { t } from '../i18n';
 import { icon, type IconName } from '../icons';
-import { dbGet, dbPut } from '../library';
+import { dbGet, dbPut, dbDelete } from '../library';
 import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
 import { renderStage, printRider } from './stage';
 import { renderTickets, printDoorList, importExcel } from './tickets';
-import { renderSongIdeas, collectAudio, restoreAudio, syllables } from './ideas';
+import { renderSongIdeas, collectAudio, restoreAudio, syllables, audioKey, audioDuration } from './ideas';
 import { INSTRUMENTS, instrumentOf, gearIcon, guessInstruments, type InstrumentPreset } from './catalog';
 import { addGear, memberInstruments, gearLabel, modelField, syncRole, INSTRUMENT_KINDS } from './gear';
 import type { Clip } from '../editor';
-import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
+import { el, iconBtn, input, durInput, select, esc, setSaver } from './dom';
 import {
   pageHead, detailHead, card, row, hint, emptyState, toggle, columns, tabs, searchField, popMenu,
   wizard, wizInput, wizField, choices, type MenuItem,
@@ -503,6 +503,7 @@ function migrate(b: Band) {
 let selSong = '';
 let songSub: 'songs' | 'todos' = 'songs';
 let songQuery = '';
+let songAlbum = ''; // '' = all, '\u0000' = without album
 
 const ideaHost = () => ({
   snippet: () => host.snippet(),
@@ -541,13 +542,31 @@ function renderSongs(main: HTMLElement) {
   if (!band.songs.length) return emptyState(main, t('Noch keine Songs.'));
 
   const ql = songQuery.trim().toLowerCase();
-  const shown = band.songs.filter((s) => !ql || [s.title, s.album, s.key, s.notes, s.lyrics].join(' ').toLowerCase().includes(ql));
+  const albums = [...new Set(band.songs.map((s) => s.album).filter(Boolean))].sort();
+  if (songAlbum && songAlbum !== '\u0000' && !albums.includes(songAlbum)) songAlbum = '';
+  const shown = band.songs.filter((s) => (!songAlbum || (songAlbum === '\u0000' ? !s.album : s.album === songAlbum)) && (!ql || [s.title, s.album, s.key, s.notes, s.lyrics].join(' ').toLowerCase().includes(ql)));
   if (!shown.some((s) => s.id === selSong)) selSong = shown[0]?.id ?? '';
   const [list, sp] = split(main);
   list.appendChild(searchField(songQuery, (v) => {
     songQuery = v;
     render();
   }, 'songSearch'));
+  if (albums.length) {
+    const bar = el('div', 'phaseBar');
+    const chip = (v: string, label: string, n: number) => {
+      const c = el('button', 'phaseChip' + (songAlbum === v ? ' on' : ''), `${v && v !== '\u0000' ? icon('album', 11) : ''}${esc(label)}<span>${n}</span>`);
+      c.onclick = () => {
+        songAlbum = v;
+        render();
+      };
+      bar.appendChild(c);
+    };
+    chip('', t('Alle'), band.songs.length);
+    for (const a of albums) chip(a, a, band.songs.filter((x) => x.album === a).length);
+    const none = band.songs.filter((x) => !x.album).length;
+    if (none) chip('\u0000', t('Ohne Album'), none);
+    list.appendChild(bar);
+  }
   let lastAlbum: string | null = null;
   const sorted = [...shown].sort((a, z) => (a.album || '￿').localeCompare(z.album || '￿'));
   for (const s of sorted) {
@@ -659,6 +678,116 @@ function fileCard(parent: HTMLElement, s: Song) {
   c.appendChild(z);
 }
 
+const SERVICES: [RegExp, string, IconName][] = [
+  [/spotify\.com/, 'Spotify', 'music'],
+  [/youtu\.?be/, 'YouTube', 'play'],
+  [/music\.apple\.com/, 'Apple Music', 'music'],
+  [/bandcamp\.com/, 'Bandcamp', 'album'],
+  [/soundcloud\.com/, 'SoundCloud', 'waveform'],
+  [/dropbox\.com|drive\.google\.com|icloud\.com|onedrive/, 'Cloud', 'folder'],
+];
+const serviceOf = (url: string): [string, IconName] => {
+  const s = SERVICES.find(([re]) => re.test(url));
+  return s ? [s[1], s[2]] : [t('Link'), 'link'];
+};
+/** https://open.spotify.com/track/ID -> embed url */
+const spotifyEmbed = (url: string) => {
+  const m = url.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(track|album|playlist|episode)\/([A-Za-z0-9]+)/);
+  return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}` : '';
+};
+
+function mediaCard(parent: HTMLElement, s: Song) {
+  const c = card(parent, t('Aufnahmen & Links'), {
+    addTip: t('Aufnahme oder Link hinzufügen'),
+    add: (a) => popMenu(a, [
+      { icon: 'link', label: t('Link (Spotify, YouTube, Bandcamp …)'), fn: () => {
+        s.media.push({ id: uid('r'), kind: 'link', label: '', url: '' });
+        save();
+        render();
+        const all = root.querySelectorAll<HTMLInputElement>('.mediaRow input.url');
+        all[all.length - 1]?.focus();
+      } },
+      { icon: 'waveform', label: t('Audio-Datei hinzufügen …'), fn: () => pickAudio(s) },
+    ]),
+  });
+  if (!s.media.length) hint(c, t('Fertige Aufnahmen, Demos oder Links zu Spotify, YouTube, Bandcamp. Audio-Dateien kannst du auch hierher ziehen.'));
+  for (const m of s.media) {
+    const r = el('div', 'mediaRow');
+    if (m.kind === 'link') {
+      const [svc, ic] = serviceOf(m.url);
+      const top = el('div', 'mediaTop');
+      top.appendChild(el('span', 'mIc', icon(ic, 14)));
+      const url = input(m, 'url', t('https://open.spotify.com/track/…'), undefined, 'pInput url');
+      url.onchange = () => render();
+      top.appendChild(url);
+      top.appendChild(el('span', 'svc', esc(m.url ? svc : '')));
+      if (m.url) {
+        const open = el('a', 'tb', icon('external', 13));
+        open.href = m.url;
+        open.target = '_blank';
+        open.rel = 'noopener';
+        open.dataset.tip = t('Öffnen');
+        top.appendChild(open);
+      }
+      top.appendChild(iconBtn('xmark', t('Entfernen'), () => { s.media = s.media.filter((x) => x !== m); save(); render(); }, 'tb'));
+      r.appendChild(top);
+      const emb = spotifyEmbed(m.url);
+      if (emb) {
+        const f = el('iframe', 'spotify');
+        f.src = emb;
+        f.loading = 'lazy';
+        f.allow = 'encrypted-media';
+        r.appendChild(f);
+      }
+    } else {
+      const top = el('div', 'mediaTop');
+      top.appendChild(el('span', 'mIc', icon('waveform', 14)));
+      top.appendChild(input(m, 'label', t('z.B. Master 2026, Demo'), undefined, 'pInput url'));
+      top.appendChild(el('span', 'svc', esc(m.audio?.duration ? fmtDur(m.audio.duration) : '')));
+      top.appendChild(iconBtn('xmark', t('Entfernen'), async () => {
+        if (!(await host.confirm(t('{x} löschen?', { x: m.label || m.audio?.name || t('Aufnahme') })))) return;
+        await dbDelete(audioKey(m.id));
+        s.media = s.media.filter((x) => x !== m);
+        save();
+        render();
+      }, 'tb'));
+      r.appendChild(top);
+      const au = el('audio');
+      au.controls = true;
+      au.preload = 'metadata';
+      r.appendChild(au);
+      void dbGet<Blob>(audioKey(m.id)).then((blob) => {
+        if (blob) au.src = URL.createObjectURL(blob);
+        else r.appendChild(el('span', 'hint', esc(t('Audio nicht gefunden (nur auf dem Gerät gespeichert, wo es hinzugefügt wurde)'))));
+      });
+    }
+    c.appendChild(r);
+  }
+  dropTarget(c, (files) => void addAudio(s, files.filter((f) => f.type.startsWith('audio') || /\.(mp3|wav|m4a|aiff?|flac|ogg|caf)$/i.test(f.name))));
+}
+
+function pickAudio(s: Song) {
+  const inp = el('input');
+  inp.type = 'file';
+  inp.accept = 'audio/*,.m4a,.mp3,.wav,.aiff,.flac,.caf';
+  inp.multiple = true;
+  inp.onchange = () => void addAudio(s, Array.from(inp.files ?? []));
+  inp.click();
+}
+
+async function addAudio(s: Song, files: File[]) {
+  for (const f of files) {
+    const m = { id: uid('r'), kind: 'audio' as const, label: f.name.replace(/\.[^.]+$/, ''), url: '', audio: { name: f.name, type: f.type, duration: await audioDuration(f) } };
+    await dbPut(audioKey(m.id), f);
+    s.media.push(m);
+    if (!s.duration && m.audio.duration) s.duration = m.audio.duration;
+  }
+  if (files.length) {
+    save();
+    render();
+  }
+}
+
 function lyricsCard(parent: HTMLElement, s: Song) {
   const c = card(parent, t('Lyrics'), { cls: 'lyricsCard' });
   const wrap = el('div', 'lyrics');
@@ -764,6 +893,7 @@ function songDetail(s: Song): HTMLElement {
     s3.appendChild(r);
   }
 
+  mediaCard(right, s);
   renderSongIdeas(right, band, s.id, ideaHost(), render);
 
   const s4 = card(right, t('Sounds & Patches'), { addTip: t('Sound hinzufügen'), add: () => { s.sounds.push(newSound()); save(); render(); } });
@@ -888,6 +1018,9 @@ function setlistDetail(l: Setlist): HTMLElement {
     }),
     meta: fmtDur(setlistDuration(band, l)),
     menu: () => [
+      { icon: 'printer', label: t('Für die Bühne drucken / PDF'), hint: t('groß'), fn: () => printSetlist(l, true) },
+      { icon: 'list', label: t('Mit Details drucken / PDF'), fn: () => printSetlist(l, false) },
+      'sep',
       { icon: 'duplicate', label: t('Duplizieren (z.B. kurze Variante)'), fn: () => {
         const c: Setlist = JSON.parse(JSON.stringify(l));
         c.id = uid('l');
@@ -909,19 +1042,28 @@ function setlistDetail(l: Setlist): HTMLElement {
     ],
   });
 
-  const used = new Set(l.items.map((it) => (it.type === 'song' ? it.song : '')));
-  const c = card(d, t('Ablauf'), {
-    addTip: t('Song oder Pause hinzufügen'),
-    add: (a) => popMenu(a, [
-      { icon: 'pause', label: t('Pause / Ansage'), fn: () => { l.items.push({ id: uid('i'), type: 'break', label: t('Pause'), duration: 0 }); save(); render(); } },
-      'sep',
-      ...band.songs.map((s): MenuItem => ({ icon: used.has(s.id) ? 'checkmark' : 'music', label: s.title || t('Ohne Titel'), fn: () => { l.items.push({ id: uid('i'), type: 'song', song: s.id, note: '' } as SetItem); save(); render(); } })),
-    ], 'scroll'),
+  const cols = el('div', 'gigCols wideLeft');
+  const left = el('div');
+  const right = el('div');
+  cols.append(left, right);
+  d.appendChild(cols);
+
+  const c = card(left, t('Ablauf'), {
+    addTip: t('Pause / Ansage hinzufügen'),
+    add: () => {
+      l.items.push({ id: uid('i'), type: 'break', label: t('Pause'), duration: 0 });
+      save();
+      render();
+    },
   });
   const items = el('div', 'setItems');
   let n = 0;
   l.items.forEach((it, i) => {
     const r = el('div', 'setRow' + (it.type === 'break' ? ' brk' : ''));
+    r.dataset.i = String(i);
+    const grip = el('span', 'grip', icon('grip', 14));
+    grip.dataset.tip = t('Ziehen zum Verschieben');
+    r.appendChild(grip);
     if (it.type === 'song') {
       n++;
       const s = band.songs.find((x) => x.id === it.song);
@@ -945,64 +1087,149 @@ function setlistDetail(l: Setlist): HTMLElement {
         if (m) m.textContent = fmtDur(setlistDuration(band, l));
       }));
     }
-    const tools = el('span', 'tools');
-    tools.appendChild(iconBtn('chevronUp', t('Nach oben'), () => { moveItem(l.items, i, -1); save(); render(); }, 'tb'));
-    tools.appendChild(iconBtn('chevronDown', t('Nach unten'), () => { moveItem(l.items, i, 1); save(); render(); }, 'tb'));
-    tools.appendChild(iconBtn('xmark', t('Entfernen'), () => { l.items.splice(i, 1); save(); render(); }, 'tb'));
-    r.appendChild(tools);
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { l.items.splice(i, 1); save(); render(); }, 'tb'));
     items.appendChild(r);
   });
-  if (!l.items.length) hint(c, band.songs.length ? t('Noch leer. Songs und Pausen fügst du mit + hinzu.') : t('Noch keine Songs in der Band. Lege sie unter „Songs“ an.'));
   c.appendChild(items);
-  dragRows(items, (from, to) => {
-    const [it] = l.items.splice(from, 1);
-    l.items.splice(to, 0, it);
+  if (!l.items.length) items.appendChild(el('div', 'setEmpty', esc(band.songs.length ? t('Songs von rechts hierher ziehen oder anklicken.') : t('Noch keine Songs in der Band. Lege sie unter „Songs“ an.'))));
+  c.appendChild(el('div', 'setTotal', `<span>${esc(t('{n} Songs', { n }))}</span><b>${fmtDur(setlistDuration(band, l))}</b>`));
+
+  // song shelf: drag into the running order (or click = append)
+  const used = new Set(l.items.map((it) => (it.type === 'song' ? it.song : '')));
+  const albums = [...new Set(band.songs.map((s) => s.album).filter(Boolean))].sort();
+  const albumSel = albums.length ? select([['', t('Alle Alben')], ...albums.map((a) => [a, a] as [string, string]), ['\u0000', t('Ohne Album')]], shelfAlbum, (v) => { shelfAlbum = v; render(); }) : undefined;
+  const shelf = card(right, t('Songs'), { cls: 'shelf', extra: albumSel ? [albumSel] : [] });
+  const ql = shelfQuery.trim().toLowerCase();
+  shelf.appendChild(searchField(shelfQuery, (v) => { shelfQuery = v; render(); }, 'shelfSearch'));
+  const shelfList = el('div', 'shelfList');
+  for (const s of band.songs.filter((x) => (!shelfAlbum || (shelfAlbum === '\u0000' ? !x.album : x.album === shelfAlbum)) && (!ql || x.title.toLowerCase().includes(ql)))) {
+    const r = el('div', 'shelfRow' + (used.has(s.id) ? ' used' : ''), `<span class="grip">${icon('grip', 13)}</span><span class="t">${esc(s.title || t('Ohne Titel'))}</span><span class="d">${s.duration ? fmtDur(s.duration) : ''}</span>${used.has(s.id) ? `<span class="ok">${icon('checkmark', 12)}</span>` : ''}`);
+    r.dataset.song = s.id;
+    r.dataset.tip = used.has(s.id) ? t('Schon in der Setlist – nochmal hinzufügen?') : t('Ziehen oder klicken zum Hinzufügen');
+    shelfList.appendChild(r);
+  }
+  if (!shelfList.childElementCount) shelfList.appendChild(el('div', 'hint pad', esc(t('Nichts gefunden.'))));
+  shelf.appendChild(shelfList);
+
+  const insert = (at: number, item: SetItem) => {
+    l.items.splice(at, 0, item);
     save();
     render();
-  });
+  };
+  setlistDrag(items, shelfList, (from, to) => {
+    const [it] = l.items.splice(from, 1);
+    l.items.splice(to > from ? to - 1 : to, 0, it);
+    save();
+    render();
+  }, (song, at) => insert(at ?? l.items.length, { id: uid('i'), type: 'song', song, note: '' } as SetItem));
   return d;
 }
 
-/** reorder rows by dragging (not from inputs or buttons) */
-function dragRows(box: HTMLElement, done: (from: number, to: number) => void) {
-  box.addEventListener('mousedown', (e) => {
-    const t0 = e.target as HTMLElement;
-    if (t0.closest('input, button, select, textarea')) return;
-    const r0 = t0.closest('.setRow') as HTMLElement | null;
-    if (!r0) return;
-    const rows = Array.from(box.querySelectorAll<HTMLElement>('.setRow'));
-    const from = rows.indexOf(r0);
-    const y0 = e.clientY;
-    let dragging = false;
-    let gap = from;
+let shelfAlbum = '';
+let shelfQuery = '';
+
+/**
+ * Drag & drop for the setlist: rows are reordered, songs from the shelf are inserted.
+ * Click on a shelf song (no movement) appends it.
+ */
+function setlistDrag(box: HTMLElement, shelf: HTMLElement, move: (from: number, gap: number) => void, add: (song: string, gap?: number) => void) {
+  const start = (e: MouseEvent, label: string, done: (gap: number | null) => void, click?: () => void) => {
     e.preventDefault();
-    const clear = () => rows.forEach((r) => r.classList.remove('dropT', 'dropB', 'dragging'));
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let ghost: HTMLElement | null = null;
+    let gap: number | null = null;
+    const rows = () => Array.from(box.querySelectorAll<HTMLElement>('.setRow'));
+    const clear = () => {
+      rows().forEach((r) => r.classList.remove('dropT', 'dropB'));
+      box.classList.remove('dropIn');
+    };
     const mv = (m: MouseEvent) => {
-      if (!dragging && Math.abs(m.clientY - y0) < 4) return;
-      dragging = true;
-      document.body.classList.add('arDragging');
+      if (!ghost) {
+        if (Math.abs(m.clientX - x0) + Math.abs(m.clientY - y0) < 4) return;
+        ghost = el('div', 'dragGhost', esc(label));
+        document.body.appendChild(ghost);
+        document.body.classList.add('arDragging');
+      }
+      ghost.style.left = `${m.clientX + 12}px`;
+      ghost.style.top = `${m.clientY - 10}px`;
       clear();
-      r0.classList.add('dragging');
-      gap = 0;
-      rows.forEach((r) => {
-        const rc = r.getBoundingClientRect();
-        if (m.clientY > rc.top + rc.height / 2) gap++;
-      });
-      if (gap < rows.length) rows[gap].classList.add('dropT');
-      else rows[rows.length - 1].classList.add('dropB');
+      const bx = box.getBoundingClientRect();
+      const inside = m.clientX >= bx.left - 40 && m.clientX <= bx.right + 40 && m.clientY >= bx.top - 30 && m.clientY <= bx.bottom + 40;
+      if (!inside) {
+        gap = null;
+        return;
+      }
+      const rs = rows();
+      gap = rs.filter((r) => m.clientY > r.getBoundingClientRect().top + r.offsetHeight / 2).length;
+      if (!rs.length) box.classList.add('dropIn');
+      else if (gap < rs.length) rs[gap].classList.add('dropT');
+      else rs[rs.length - 1].classList.add('dropB');
     };
     const up = () => {
       window.removeEventListener('mousemove', mv);
       window.removeEventListener('mouseup', up);
       document.body.classList.remove('arDragging');
       clear();
-      if (!dragging) return;
-      const to = gap > from ? gap - 1 : gap;
-      if (to !== from) done(from, to);
+      if (!ghost) return click?.();
+      ghost.remove();
+      done(gap);
     };
     window.addEventListener('mousemove', mv);
     window.addEventListener('mouseup', up);
+  };
+  box.addEventListener('mousedown', (e) => {
+    const t0 = e.target as HTMLElement;
+    if (t0.closest('input, button, select, textarea, .link')) return;
+    const r = t0.closest('.setRow') as HTMLElement | null;
+    if (!r) return;
+    const from = Number(r.dataset.i);
+    r.classList.add('dragging');
+    start(e, r.querySelector('.name')?.textContent || (r.querySelector('input') as HTMLInputElement | null)?.value || '', (gap) => {
+      r.classList.remove('dragging');
+      if (gap !== null && gap !== from && gap !== from + 1) move(from, gap);
+    });
+    window.addEventListener('mouseup', () => r.classList.remove('dragging'), { once: true });
   });
+  shelf.addEventListener('mousedown', (e) => {
+    const r = (e.target as HTMLElement).closest('.shelfRow') as HTMLElement | null;
+    if (!r) return;
+    const song = r.dataset.song!;
+    start(e, r.querySelector('.t')?.textContent ?? '', (gap) => { if (gap !== null) add(song, gap); }, () => add(song));
+  });
+}
+
+function printSetlist(l: Setlist, big: boolean) {
+  let n = 0;
+  const rows = l.items.map((it) => {
+    if (it.type === 'break') return `<tr class="brk"><td></td><td>${esc(it.label || t('Pause'))}</td>${big ? '' : '<td></td><td></td>'}<td class="r">${it.duration ? fmtDur(it.duration) : ''}</td></tr>`;
+    const s = band.songs.find((x) => x.id === it.song);
+    n++;
+    return big
+      ? `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? `<i>${esc(it.note)}</i>` : ''}</td><td class="r">${esc(s?.key ?? '')}</td></tr>`
+      : `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? ` <i>${esc(it.note)}</i>` : ''}</td><td>${esc(s?.key ?? '')}</td><td>${s?.bpm ? s.bpm + ' bpm' : ''}</td><td class="r">${s?.duration ? fmtDur(s.duration) : ''}</td></tr>`;
+  }).join('');
+  const css = big
+    ? `#printArea.setPrint{font:600 30px -apple-system,Helvetica,Arial,sans-serif;color:#000;padding:4px}
+.setPrint h1{font-size:22px;margin:0 0 14px;display:flex;align-items:center;gap:12px}.setPrint h1 img{height:36px}
+.setPrint table{border-collapse:collapse;width:100%}.setPrint td{padding:7px 8px;vertical-align:baseline}
+.setPrint tr+tr td{border-top:1px solid #ccc}.setPrint .n{width:52px;color:#888;font-weight:500}
+.setPrint i{display:block;font:italic 400 17px -apple-system,Helvetica,Arial,sans-serif;color:#444}
+.setPrint .r{text-align:right;color:#666;font-size:22px;font-weight:500}.setPrint .brk td{font:italic 400 20px -apple-system,Helvetica,Arial,sans-serif;color:#666}
+.setPrint tr{break-inside:avoid}`
+    : `#printArea.setPrint{font:13px -apple-system,Helvetica,Arial,sans-serif;color:#111;padding:8px}
+.setPrint h1{font-size:22px;margin:0 0 4px;display:flex;align-items:center;gap:10px}.setPrint h1 img{height:30px}.setPrint .sub{color:#555;margin-bottom:16px}
+.setPrint table{border-collapse:collapse;width:100%}.setPrint td{padding:5px 6px;vertical-align:top}
+.setPrint tr+tr td{border-top:0.5px solid #ddd}.setPrint .n{width:28px;color:#777}.setPrint .r{text-align:right}
+.setPrint .brk td{color:#777;font-style:italic}.setPrint tfoot td{border-top:1px solid #999;font-weight:600}`;
+  const head = `<h1>${band.logo ? `<img src="${band.logo}" alt="">` : ''}<span>${esc(band.name)} – ${esc(l.name)}</span></h1>`;
+  const html = `<style>${css}</style>${head}${big ? '' : `<div class="sub">${esc(t('{n} Songs', { n }))} · ${fmtDur(setlistDuration(band, l))}</div>`}<table>${rows}${big ? '' : `<tfoot><tr><td></td><td>${esc(t('Gesamt'))}</td><td></td><td></td><td class="r">${fmtDur(setlistDuration(band, l))}</td></tr></tfoot>`}</table>`;
+  document.getElementById('printArea')?.remove();
+  const area = el('div', 'setPrint', html);
+  area.id = 'printArea';
+  document.body.appendChild(area);
+  window.addEventListener('afterprint', () => setTimeout(() => area.remove(), 500), { once: true });
+  void openPrintDialog();
 }
 
 // ---------------- gigs ----------------
@@ -1360,9 +1587,9 @@ type SongSource = 'new' | 'open' | 'file' | 'none';
 
 async function songWizard() {
   const cur = host.currentSong();
-  const r = await wizard<{ src: SongSource; title: string; picked: ScoreInfo | null }>({
+  const r = await wizard<{ src: SongSource; title: string; album: string; picked: ScoreInfo | null }>({
     title: t('Song'),
-    state: { src: cur ? 'open' : 'file', title: '', picked: null },
+    state: { src: cur ? 'open' : 'file', title: '', album: songAlbum && songAlbum !== '\u0000' ? songAlbum : '', picked: null },
     finish: t('Anlegen'),
     steps: [
       {
@@ -1404,6 +1631,13 @@ async function songWizard() {
         body: (box, s, redraw) => {
           if (!s.title && s.src === 'open' && cur) s.title = cur.title;
           wizField(box, t('Titel'), wizInput(s.title, t('Titel'), (v) => { s.title = v; redraw(); }));
+          const al = wizInput(s.album, t('optional, z.B. EP 2027'), (v) => (s.album = v));
+          al.setAttribute('list', 'wizAlbums');
+          const dl = el('datalist');
+          dl.id = 'wizAlbums';
+          for (const a of [...new Set(band.songs.map((x) => x.album).filter(Boolean))]) dl.appendChild(Object.assign(el('option'), { value: a }));
+          box.appendChild(dl);
+          wizField(box, t('Album'), al);
         },
       },
     ],
@@ -1411,6 +1645,7 @@ async function songWizard() {
   if (!r) return;
   const title = r.title.trim();
   const s = newSong(title);
+  s.album = r.album.trim();
   if (r.src === 'open' && cur) {
     s.bpm = cur.bpm;
     s.duration = cur.duration;

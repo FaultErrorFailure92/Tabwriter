@@ -24,6 +24,16 @@ export interface Song {
   todos: Todo[];
   sounds: SoundCue[]; // e.g. Helix patch per part
   lyrics: string;
+  /** finished recordings and links (Spotify, YouTube, Bandcamp …) */
+  media: SongMedia[];
+}
+
+export interface SongMedia {
+  id: string;
+  kind: 'link' | 'audio';
+  label: string;
+  url: string; // link
+  audio?: { name: string; type: string; duration: number }; // blob in IndexedDB (memo:<id>)
 }
 
 export type Phase = 'idea' | 'writing' | 'arrangement' | 'production' | 'released' | 'live';
@@ -404,7 +414,7 @@ export function normalize(d: any): Band {
   const b = newBand(d.name ?? 'Band');
   b.setup = d.setup ?? !!(d.members?.length || d.songs?.length || d.gigs?.length || d.setlists?.length);
   b.members = d.members ?? [];
-  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [], lyrics: s.lyrics ?? '' }));
+  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [], lyrics: s.lyrics ?? '', media: s.media ?? [] }));
   b.setlists = d.setlists ?? [];
   b.logo = d.logo;
   b.contact = { ...b.contact, ...(d.contact ?? {}) };
@@ -428,7 +438,7 @@ export function newMember(): Member {
 }
 
 export function newSong(title = ''): Song {
-  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [], lyrics: '' };
+  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [], lyrics: '', media: [] };
 }
 
 export function newTodo(text = ''): Todo {
