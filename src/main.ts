@@ -10,6 +10,7 @@ import * as A from './arrangement';
 import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
+import { startMidi, stopMidi, midiSupported } from './midiin';
 import { fretboardSvg, SCALES, CHORDS, NOTE_NAMES, NOTE_NAMES_EN, shapeFor } from './fretboard';
 import { reaperZip } from './reaper';
 import { type Version, diffScores } from './versions';
@@ -186,6 +187,40 @@ function setMultiView(on: boolean) {
   $('oneBtn').classList.toggle('on', !on);
   render();
 }
+
+// ---------------- MIDI input ----------------
+let midiOn = false;
+async function toggleMidiInput() {
+  if (midiOn) {
+    stopMidi();
+    midiOn = false;
+    $('midiBtn').classList.remove('on');
+    flash(t('MIDI-Eingabe aus'));
+    return;
+  }
+  if (!midiSupported()) {
+    flash(isTauri() ? t('MIDI-Eingabe gibt es vorerst nur in der Web-Version (Chrome/Edge)') : t('Dieser Browser unterstützt kein Web MIDI – bitte Chrome oder Edge verwenden'));
+    return;
+  }
+  try {
+    const names = await startMidi((pitches) => {
+      if (anyModalOpen() || libraryOpen() || inTextField() || leadMode) return;
+      editor.clearSelection();
+      if (editor.setPitches(pitches)) {
+        previewNote(editor.beat.notes[0]);
+        editor.next();
+        moved();
+        updateCursor(true);
+      }
+    });
+    midiOn = true;
+    $('midiBtn').classList.add('on');
+    flash(names.length ? t('MIDI-Eingabe an: {x}', { x: names.join(', ') }) : t('MIDI-Eingabe an – noch kein Gerät gefunden'));
+  } catch (e: any) {
+    flash(t('MIDI nicht verfügbar: {x}', { x: e?.message ?? String(e) }));
+  }
+}
+$('midiBtn').onclick = () => { $('midiBtn').blur(); void toggleMidiInput(); };
 
 // ---------------- fretboard ----------------
 let fbOpen = false;
@@ -2730,6 +2765,7 @@ function run(a: Action) {
     case 'meta': openMeta(); break;
     case 'versions': openVersions(); break;
     case 'fretboard': showFretboard(!fbOpen); break;
+    case 'midi-in': void toggleMidiInput(); break;
     case 'print-parts': openParts(); break;
     case 'undo':
       if (inTextField()) document.execCommand('undo');

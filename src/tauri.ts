@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions' | 'print-parts' | 'fretboard';
+  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions' | 'print-parts' | 'fretboard' | 'midi-in';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();

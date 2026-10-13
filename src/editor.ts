@@ -1139,6 +1139,49 @@ export class Editor {
     this.commit();
   }
 
+  /** MIDI step input: put these pitches on the cursor beat (strings chosen automatically) */
+  setPitches(pitches: number[]): boolean {
+    const b = this.beat;
+    const placed: { string: number; fret: number; drum?: number }[] = [];
+    if (this.isDrums) {
+      for (const p of pitches) if (DRUM_LANES.some((l) => l.midi === p)) placed.push({ string: -1, fret: -1, drum: p });
+    } else {
+      const tuning = this.staff.tuning; // high -> low
+      const n = tuning.length;
+      const sorted = [...new Set(pitches)].sort((x, y) => y - x);
+      const fits = (row: number, p: number) => p - tuning[row] >= 0 && p - tuning[row] <= 24;
+      if (sorted.length === 1 && fits(this.cursor.row, sorted[0]) && sorted[0] - tuning[this.cursor.row] <= 15) {
+        placed.push({ string: n - this.cursor.row, fret: sorted[0] - tuning[this.cursor.row] });
+      } else {
+        let row = 0;
+        for (const p of sorted) {
+          while (row < n && !(fits(row, p) && p - tuning[row] <= 17)) row++;
+          if (row >= n) break;
+          placed.push({ string: n - row, fret: p - tuning[row] });
+          row++;
+        }
+      }
+    }
+    if (!placed.length) return false;
+    this.begin();
+    this.ensureNotRest(b);
+    for (const x of [...b.notes]) b.removeNote(x);
+    for (const p of placed) {
+      const note = new m.Note();
+      if (p.drum !== undefined) {
+        note.percussionArticulation = p.drum;
+        note.string = -1;
+        note.fret = -1;
+      } else {
+        note.string = p.string;
+        note.fret = p.fret;
+      }
+      b.addNote(note);
+    }
+    this.commit();
+    return true;
+  }
+
   /** lyric syllable on the cursor beat (one line) */
   setLyric(text: string) {
     const b = this.beat;

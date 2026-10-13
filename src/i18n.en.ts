@@ -790,4 +790,11 @@ export const EN: Record<string, string> = {
   "Phrygisch": "Phrygian",
   "Stimmen drucken …": "Print parts …",
   "Stimmen drucken": "Print parts",
+  "MIDI-Eingabe aus": "MIDI input off",
+  "MIDI-Eingabe gibt es vorerst nur in der Web-Version (Chrome/Edge)": "MIDI input is only available in the web version (Chrome/Edge) for now",
+  "Dieser Browser unterstützt kein Web MIDI – bitte Chrome oder Edge verwenden": "This browser doesn't support Web MIDI – please use Chrome or Edge",
+  "MIDI-Eingabe an: {x}": "MIDI input on: {x}",
+  "MIDI-Eingabe an – noch kein Gerät gefunden": "MIDI input on – no device found yet",
+  "MIDI nicht verfügbar: {x}": "MIDI not available: {x}",
+  "MIDI-Eingabe: Keyboard/MIDI-Gitarre spielt Noten in den aktuellen Schlag": "MIDI input: keyboard/MIDI guitar plays notes into the current beat",
 };
