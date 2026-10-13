@@ -59,7 +59,7 @@ export async function setupMenu(run: (a: Action) => void) {
     items: await Promise.all([
       item('new', t('Neu'), 'CmdOrCtrl+N'),
       item('open', t('Öffnen …'), 'CmdOrCtrl+O'),
-      item('library', t('Bibliothek'), 'CmdOrCtrl+Shift+L'),
+      item('library', t('Übersicht'), 'CmdOrCtrl+Shift+L'),
       item('band', t('Band …'), 'CmdOrCtrl+Shift+G'),
       sep(),
       item('save', t('Speichern'), 'CmdOrCtrl+S'),

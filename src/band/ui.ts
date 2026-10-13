@@ -28,6 +28,11 @@ export interface CurrentSong {
 export interface BandHost {
   currentSong(): CurrentSong | null;
   flash(msg: string): void;
+  home(): void;
+  editor(): void;
+  hasSong(): boolean;
+  songTitle(): string;
+  newSong(): void;
   confirm(msg: string): Promise<boolean>;
   /** songs from the library: file = path (desktop) or file name (browser) */
   recentFiles(): { label: string; file: string }[];
@@ -130,7 +135,46 @@ export function bandOpen() {
   return !!root && !root.classList.contains('hidden');
 }
 
-export function openBand() {
+export type BandTab = Tab;
+
+/** process order: band -> songs -> stage -> setlists -> gigs */
+export const STEPS: { tab: Tab; icon: IconName; label: string }[] = [
+  { tab: 'members', icon: 'people', label: 'Band' },
+  { tab: 'songs', icon: 'music', label: 'Songs' },
+  { tab: 'stage', icon: 'stagePlan', label: 'Bühne & Technik' },
+  { tab: 'setlists', icon: 'list', label: 'Setlists' },
+  { tab: 'gigs', icon: 'calendar', label: 'Gigs' },
+];
+
+/** one status line per step for the home screen */
+export function stepStatus(tb: Tab): { text: string; done: boolean } {
+  const b = band;
+  switch (tb) {
+    case 'members':
+      return b.members.length ? { text: t('{n} Mitglieder', { n: b.members.length }), done: true } : { text: t('Mitglieder anlegen'), done: false };
+    case 'songs': {
+      const linked = b.songs.filter((s) => s.file).length;
+      return b.songs.length ? { text: t('{n} Songs · {d}', { n: b.songs.length, d: fmtDur(b.songs.reduce((a, s) => a + s.duration, 0)) }) + (linked < b.songs.length ? ' · ' + t('{n} ohne Datei', { n: b.songs.length - linked }) : ''), done: true } : { text: t('Songs schreiben und sammeln'), done: false };
+    }
+    case 'stage':
+      return b.gear.items.length ? { text: t('{g} Geräte · {c} Kanäle · {k} Kabel', { g: b.gear.items.length, c: b.gear.inputs.length, k: b.gear.cables.length }), done: b.gear.inputs.length > 0 } : { text: t('Equipment, Bühnenplan, Kanäle'), done: false };
+    case 'setlists':
+      return b.setlists.length ? { text: b.setlists.map((l) => `${l.name} (${fmtDur(setlistDuration(b, l))})`).slice(0, 2).join(' · ') + (b.setlists.length > 2 ? ' …' : ''), done: true } : { text: t('Songs zu Sets zusammenstellen'), done: false };
+    case 'gigs': {
+      const now = new Date().toISOString().slice(0, 10);
+      const next = b.gigs.filter((g) => g.date >= now).sort((a, z) => a.date.localeCompare(z.date))[0];
+      if (next) return { text: t('Nächster: {x}', { x: `${fmtDate(next.date)} · ${next.title || next.venue || t('Gig')}` }), done: true };
+      return b.gigs.length ? { text: t('{n} Gigs, keiner geplant', { n: b.gigs.length }), done: true } : { text: t('Termine, Zeitplan, Rider'), done: false };
+    }
+  }
+}
+
+export function bandName() {
+  return band.name;
+}
+
+export function openBand(to?: Tab) {
+  if (to) tab = to;
   render();
   root.classList.remove('hidden');
 }
@@ -156,24 +200,28 @@ function render() {
   const head = el('div', 'bandHead');
   const name = input(band, 'name', t('Name der Band'), undefined, 'bandName');
   head.appendChild(name);
-  head.appendChild(iconBtn('xmark', t('Schließen (Esc)'), closeBand));
   side.appendChild(head);
 
-  const nav: [Tab, IconName, string, number][] = [
-    ['gigs', 'calendar', t('Gigs'), band.gigs.length],
-    ['setlists', 'list', t('Setlists'), band.setlists.length],
-    ['songs', 'music', t('Songs'), band.songs.length],
-    ['members', 'people', t('Mitglieder'), band.members.length],
-    ['stage', 'stagePlan', t('Bühne & Technik'), band.gear.items.length],
-  ];
-  for (const [k, ic, label, n] of nav) {
-    const b = el('button', 'bandNav' + (tab === k ? ' on' : ''), `${icon(ic, 16)}<span>${esc(label)}</span><span class="cnt">${n || ''}</span>`);
+  const home = el('button', 'bandNav home', `${icon('house', 16)}<span>${esc(t('Übersicht'))}</span><kbd>⇧⌘L</kbd>`);
+  home.onclick = () => host.home();
+  side.appendChild(home);
+  side.appendChild(el('div', 'bandNavSep'));
+  const counts: Record<Tab, number> = { members: band.members.length, songs: band.songs.length, stage: band.gear.items.length, setlists: band.setlists.length, gigs: band.gigs.length };
+  STEPS.forEach((st, i) => {
+    const b = el('button', 'bandNav' + (tab === st.tab ? ' on' : ''), `<span class="step">${i + 1}</span>${icon(st.icon, 16)}<span>${esc(t(st.label))}</span><span class="cnt">${counts[st.tab] || ''}</span>`);
+    b.dataset.tip = stepStatus(st.tab).text;
     b.onclick = () => {
-      tab = k;
+      tab = st.tab;
       render();
     };
     side.appendChild(b);
-  }
+    if (st.tab === 'songs' && host.hasSong()) {
+      const ed = el('button', 'bandNav sub', `${icon('pencil', 14)}<span>${esc(t('Editor & Arrangement'))}</span>`);
+      ed.dataset.tip = host.songTitle();
+      ed.onclick = () => host.editor();
+      side.appendChild(ed);
+    }
+  });
   side.appendChild(el('span', 'spacer'));
   const foot = el('div', 'bandFoot');
   foot.appendChild(iconBtn('folder', t('Band-Datei öffnen …'), () => void importBand()));
@@ -206,7 +254,7 @@ function empty(main: HTMLElement, text: string) {
 // ---------------- members ----------------
 
 function renderMembers(main: HTMLElement) {
-  pageHead(main, t('Mitglieder'), t('Mitglied hinzufügen'), () => {
+  pageHead(main, t('Band'), t('Mitglied hinzufügen'), () => {
     band.members.push(newMember());
     save();
     render();
@@ -233,7 +281,7 @@ function renderMembers(main: HTMLElement) {
 // ---------------- songs ----------------
 
 function renderSongs(main: HTMLElement) {
-  const cur = el('button', 'btn', `${icon('docPlus', 14)}<span>${esc(t('Aktuellen Song übernehmen'))}</span>`);
+  const cur = el('button', 'btn', `${icon('music', 14)}<span>${esc(t('Aktuellen Song übernehmen'))}</span>`);
   cur.dataset.tip = t('Titel, Tempo und Länge aus dem Editor');
   cur.onclick = () => {
     const c = host.currentSong();
@@ -249,12 +297,16 @@ function renderSongs(main: HTMLElement) {
     render();
     host.flash(ex ? t('„{x}“ aktualisiert', { x: c.title }) : t('„{x}“ hinzugefügt', { x: c.title }));
   };
-  pageHead(main, t('Songs'), t('Song hinzufügen'), () => {
+  const extra = el('span', 'btnGroup');
+  const nw = el('button', 'btn', `${icon('docPlus', 14)}<span>${esc(t('Neuer Song im Editor'))}</span>`);
+  nw.onclick = () => host.newSong();
+  extra.append(nw, cur);
+  pageHead(main, t('Songs'), t('Song zur Liste hinzufügen (ohne Datei)'), () => {
     band.songs.push(newSong());
     save();
     render();
     (root.querySelector('.bandTable .row:last-child input') as HTMLInputElement | null)?.focus();
-  }, cur);
+  }, extra);
   if (!band.songs.length) return empty(main, t('Noch keine Songs. Übernimm den offenen Song oder lege einen mit + an.'));
   const tbl = el('div', 'bandTable');
   tbl.appendChild(el('div', 'row head songs', `<span>${t('Titel')}</span><span>${t('Länge')}</span><span>${t('BPM')}</span><span>${t('Tonart')}</span><span>${t('Notiz')}</span><span>${t('Datei')}</span><span></span>`));

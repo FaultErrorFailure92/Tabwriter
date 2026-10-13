@@ -7,7 +7,7 @@ import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW } from './io';
 import * as A from './arrangement';
-import { initBand, openBand, closeBand, bandOpen } from './band/ui';
+import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
 import { openPrintDialog } from './print';
@@ -698,6 +698,11 @@ void initBand({
   currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: currentFileKey() } : null),
   flash: (m) => flash(m),
   confirm: (m) => confirmAsk(m),
+  home: () => { closeBand(); openLibrary(); },
+  editor: () => { closeBand(); closeLibrary(); },
+  hasSong: () => hasSong,
+  songTitle: () => editor.score.title || fileName,
+  newSong: () => { closeBand(); void newSong(); },
   recentFiles: () => listRecent().map((it) => ({ label: it.title || it.fileName, file: it.path ?? it.fileName })),
   pickFile: async () => {
     const f = await pickFile($<HTMLInputElement>('fileInput'));
@@ -1887,6 +1892,7 @@ function openLibrary() {
   hideBoot();
   closePops();
   renderLibrary();
+  renderFlow();
   void showRecovery();
   $('library').classList.remove('hidden');
   $('libClose').classList.toggle('hidden', !hasSong);
@@ -1951,10 +1957,31 @@ async function openRecent(it: RecentEntry) {
 }
 
 $('libNew').onclick = () => newSong();
-$('libBand').onclick = () => run('band');
 $('libOpen').onclick = () => openSong();
 $('libDemo').onclick = () => openDemo();
 $('libClose').onclick = () => closeLibrary();
+$('homeBtn').onclick = () => { $('homeBtn').blur(); openLibrary(); };
+
+/** home: the process as steps, each opens its area */
+function renderFlow() {
+  const box = $('flow');
+  box.innerHTML = '';
+  $('libLead').textContent = bandName() ? t('{x} – von der Idee bis zur Bühne', { x: bandName() }) : t('Von der Idee bis zur Bühne');
+  STEPS.forEach((st, i) => {
+    const s = stepStatus(st.tab);
+    const card = document.createElement('button');
+    card.className = 'flowStep' + (s.done ? ' done' : '');
+    card.innerHTML = `<span class="flowNum">${s.done ? icon('checkmark', 12) : i + 1}</span><span class="flowIcon">${icon(st.icon, 20)}</span><span class="flowTitle">${escapeHtml(t(st.label))}</span><span class="flowSub">${escapeHtml(s.text)}</span>`;
+    card.dataset.key = `⌘${i + 1}`;
+    card.onclick = () => openStep(st.tab);
+    box.appendChild(card);
+  });
+}
+
+function openStep(tb: BandTab) {
+  closePops();
+  openBand(tb);
+}
 
 // ---------------- song info (metadata) ----------------
 const META_FIELDS: [keyof alphaTab.model.Score, string][] = [
@@ -2379,7 +2406,7 @@ function run(a: Action) {
     case 'quit': void closeWindow(); break;
     case 'new': void newSong(); break;
     case 'open': void openSong(); break;
-    case 'library': openLibrary(); break;
+    case 'library': if (bandOpen()) closeBand(); openLibrary(); break;
     case 'save': void saveSong(); break;
     case 'saveas': void saveSong(true); break;
     case 'export-gp': void exportFile('gp'); break;
@@ -2466,7 +2493,9 @@ window.addEventListener('keydown', async (e) => {
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(k)) return;
 
   if (bandOpen()) {
-    if (k === 'Escape' && !inTextField()) { e.preventDefault(); closeBand(); }
+    if (mod && e.shiftKey && k.toLowerCase() === 'l') { e.preventDefault(); closeBand(); openLibrary(); return; }
+    if (mod && /^[1-5]$/.test(k)) { e.preventDefault(); openBand(STEPS[Number(k) - 1].tab); return; }
+    if (k === 'Escape' && !inTextField()) { e.preventDefault(); closeBand(); if (!hasSong) openLibrary(); }
     else if (mod && k.toLowerCase() === 'g' && e.shiftKey) { e.preventDefault(); closeBand(); }
     return;
   }
@@ -2477,6 +2506,7 @@ window.addEventListener('keydown', async (e) => {
     else if (mod && lk0 === 'o') { e.preventDefault(); run('open'); }
     else if (mod && lk0 === ',') { e.preventDefault(); run('prefs'); }
     else if (mod && e.shiftKey && lk0 === 'g') { e.preventDefault(); run('band'); }
+    else if (mod && /^[1-5]$/.test(k)) { e.preventDefault(); openStep(STEPS[Number(k) - 1].tab); }
     else if (mod && e.shiftKey && lk0 === 'l' && hasSong) { e.preventDefault(); closeLibrary(); }
     return;
   }
@@ -2495,6 +2525,7 @@ window.addEventListener('keydown', async (e) => {
       p: 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
+    if (/^[1-5]$/.test(k) && !e.shiftKey && !e.altKey) { e.preventDefault(); openStep(STEPS[Number(k) - 1].tab); return; }
     if (lk === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); return; }
     if (lk === 'c') { e.preventDefault(); if (clipGuard()) doCopy(); return; }
     if (lk === 'x') { e.preventDefault(); if (clipGuard()) doCut(); return; }

@@ -76,6 +76,7 @@
     </div>
     <header id="top" data-tauri-drag-region>
       <div class="tbGroup tbLeft" data-tauri-drag-region>
+ <button id="homeBtn" class="tbtn" title="Übersicht (Band → Songs → Bühne → Setlists → Gigs)" data-key="⇧⌘L"><i data-icon="house"></i></button>
         <button id="leftBtn" class="tbtn on" title="Spuren ein-/ausblenden" data-key="⌃⌘S"><i data-icon="sidebarLeft"></i></button>
         <div class="titleBlock" data-tauri-drag-region>
           <input id="title" spellcheck="false" aria-label="Titel" title="Titel bearbeiten" />
@@ -113,7 +114,7 @@
 
     <div id="menu" class="pop menuPop hidden">
       <button data-act="band"><i data-icon="people"></i><span>Band …</span><kbd>⇧⌘G</kbd></button>
-      <button data-act="library"><i data-icon="books"></i><span>Bibliothek</span><kbd>⇧⌘L</kbd></button>
+      <button data-act="library"><i data-icon="house"></i><span>Übersicht</span><kbd>⇧⌘L</kbd></button>
       <button data-act="new"><i data-icon="docPlus"></i><span>Neu</span><kbd>⌘N</kbd></button>
       <button data-act="open"><i data-icon="folder"></i><span>Öffnen …</span><kbd>⌘O</kbd></button>
       <hr />
@@ -246,11 +247,11 @@
         <div class="libHead">
           <img src="./icon-192.png" alt="" width="56" height="56" />
           <div>
-            <h1>Tabwriter</h1>
-            <div class="libLead">Was möchtest du schreiben?</div>
+            <h1>Stagecraft</h1>
+            <div id="libLead" class="libLead">Von der Idee bis zur Bühne</div>
           </div>
           <span class="spacer"></span>
-          <button id="libClose" class="tbtn" title="Schließen" data-key="Esc"><i data-icon="xmark"></i></button>
+          <button id="libClose" class="btn" title="Zurück zum geöffneten Song" data-key="Esc"><i data-icon="pencil" data-size="13"></i><span>Zum Editor</span></button>
         </div>
         <div id="libRecover" class="recover hidden">
           <i data-icon="restore" data-size="20"></i>
@@ -262,11 +263,12 @@
           <button id="recDiscard" class="btn">Verwerfen</button>
           <button id="recRestore" class="btn primary">Wiederherstellen</button>
         </div>
+        <div id="flow" class="flow"></div>
+        <h2 class="libSection">Songs schreiben</h2>
         <div class="libActions">
           <button id="libNew" class="tile" title="Neuer Song" data-key="⌘N"><span class="tileIcon"><i data-icon="docPlus" data-size="26"></i></span><span>Neuer Song</span></button>
           <button id="libOpen" class="tile" title="Datei öffnen" data-key="⌘O"><span class="tileIcon"><i data-icon="folder" data-size="26"></i></span><span>Öffnen …</span></button>
           <button id="libDemo" class="tile" title="Demo-Song öffnen"><span class="tileIcon"><i data-icon="music" data-size="26"></i></span><span>Demo-Song</span></button>
-          <button id="libBand" class="tile" title="Band: Gigs, Setlists, Songs, Mitglieder" data-key="⇧⌘G"><span class="tileIcon"><i data-icon="people" data-size="26"></i></span><span>Band</span></button>
         </div>
         <h2 class="libSection">Zuletzt bearbeitet</h2>
         <div id="libList"></div>
