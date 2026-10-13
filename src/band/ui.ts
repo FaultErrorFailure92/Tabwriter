@@ -8,7 +8,7 @@ import { renderStage, printRider } from './stage';
 import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
 import {
   type Band, type Gig, type Setlist, type SetItem,
-  newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, uid,
+  newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
   setlistDuration, fmtDur, parseDur,
 } from './model';
 
@@ -478,7 +478,7 @@ function renderGigs(main: HTMLElement) {
     if (!gigs.length) return;
     list.appendChild(el('div', 'bandGroup', esc(title)));
     for (const g of gigs) {
-      const r = el('div', 'bandItem' + (g.id === selGig ? ' on' : '') + (g.date && g.date < now ? ' past' : ''), `<span class="t">${esc(g.title || g.venue || t('Gig'))}</span><span class="s">${esc(fmtDate(g.date))}${g.venue && g.title ? ' · ' + esc(g.venue) : ''}</span>`);
+      const r = el('div', 'bandItem' + (g.id === selGig ? ' on' : '') + (g.date && g.date < now ? ' past' : ''), `<span class="t">${esc(g.title || g.venue || t('Gig'))}${moneyBadge(g)}</span><span class="s">${esc(fmtDate(g.date))}${g.venue && g.title ? ' · ' + esc(g.venue) : ''}</span>`);
       r.onclick = () => {
         selGig = g.id;
         render();
@@ -488,9 +488,28 @@ function renderGigs(main: HTMLElement) {
   };
   group(t('Kommend'), upcoming);
   group(t('Vergangen'), past);
+  // fees per year
+  const years = new Map<string, { fee: number; open: number }>();
+  for (const g of band.gigs) {
+    if (!g.money.fee || !g.date) continue;
+    const y = g.date.slice(0, 4);
+    const v = years.get(y) ?? { fee: 0, open: 0 };
+    v.fee += g.money.fee;
+    if (!g.money.paid) v.open += g.money.fee;
+    years.set(y, v);
+  }
+  for (const [y, v] of [...years].sort().reverse()) {
+    list.appendChild(el('div', 'bandSum', esc(t('Gagen {y}: {a}', { y, a: fmtMoney(v.fee) }) + (v.open ? ' · ' + t('offen {a}', { a: fmtMoney(v.open) }) : ''))));
+  }
   split.appendChild(list);
   split.appendChild(gigDetail(band.gigs.find((g) => g.id === selGig)!));
   main.appendChild(split);
+}
+
+/** small marker in the gig list: unpaid fee */
+function moneyBadge(g: Gig): string {
+  if (!g.money.fee) return '';
+  return g.money.paid ? `<span class="money ok" data-tip="${esc(t('Gage bezahlt'))}">€</span>` : `<span class="money" data-tip="${esc(t('Gage offen'))}">€</span>`;
 }
 
 function section(parent: HTMLElement, title: string, extra?: HTMLElement): HTMLElement {
@@ -513,7 +532,7 @@ function gigDetail(g: Gig): HTMLElement {
   const refreshItem = () => {
     const it = root.querySelector('.bandItem.on');
     if (!it) return;
-    it.querySelector('.t')!.textContent = g.title || g.venue || t('Gig');
+    it.querySelector('.t')!.innerHTML = esc(g.title || g.venue || t('Gig')) + moneyBadge(g);
     it.querySelector('.s')!.textContent = fmtDate(g.date) + (g.venue && g.title ? ' · ' + g.venue : '');
   };
   const top = el('div', 'detailTop');
@@ -616,6 +635,61 @@ function gigDetail(g: Gig): HTMLElement {
     r.appendChild(iconBtn('xmark', t('Entfernen'), () => { g.contacts = g.contacts.filter((x) => x !== c); save(); render(); }, 'tb'));
     s4.appendChild(r);
   }
+
+  // money
+  const sm = section(right, t('Gage & Kosten'));
+  const sumBox = el('div', 'moneySum');
+  const upd = () => {
+    const r = settle(band, g);
+    sumBox.innerHTML =
+      `<div><span>${esc(t('Kosten'))}</span><b>${fmtMoney(r.costs)}</b></div>` +
+      `<div><span>${esc(t('Bleibt'))}</span><b class="${r.net < 0 ? 'neg' : ''}">${fmtMoney(r.net)}</b></div>` +
+      (r.payout.length ? `<div><span>${esc(t('Pro Kopf'))}</span><b>${fmtMoney(r.share)}</b></div>` : '') +
+      (r.payout.some((p) => Math.abs(p.amount - r.share) > 0.005)
+        ? `<div class="payout">${r.payout.map((p) => `<span>${esc(band.members.find((m) => m.id === p.member)?.name ?? '?')}: ${fmtMoney(p.amount)}</span>`).join('')}</div>`
+        : '');
+  };
+  const feeRow = el('div', 'gigField');
+  feeRow.appendChild(el('span', '', esc(t('Gage'))));
+  const fee = input(g.money, 'fee', '0', upd, 'pInput num', 'number');
+  fee.step = '10';
+  if (!g.money.fee) fee.value = '';
+  feeRow.appendChild(fee);
+  const paid = el('label', 'paid');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = g.money.paid;
+  cb.onchange = () => {
+    g.money.paid = cb.checked;
+    save();
+    refreshItem();
+  };
+  paid.append(cb, document.createTextNode(t('bezahlt')));
+  feeRow.appendChild(paid);
+  sm.appendChild(feeRow);
+  for (const c of g.money.costs) {
+    const r = el('div', 'costRow');
+    r.appendChild(input(c, 'label', t('z.B. Sprit, Hotel')));
+    const amt = input(c, 'amount', '0', upd, 'pInput num', 'number');
+    if (!c.amount) amt.value = '';
+    r.appendChild(amt);
+    r.appendChild(select([['', t('Bandkasse')], ...band.members.map((m) => [m.id, t('ausgelegt: {x}', { x: m.name || '?' })] as [string, string])], c.paidBy, (v) => {
+      c.paidBy = v;
+      save();
+      upd();
+    }));
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { g.money.costs = g.money.costs.filter((x) => x !== c); save(); render(); }, 'tb'));
+    sm.appendChild(r);
+  }
+  const addCost = el('button', 'btn plain', `${icon('plus', 12)}<span>${esc(t('Kosten hinzufügen'))}</span>`);
+  addCost.onclick = () => {
+    g.money.costs.push(newCost());
+    save();
+    render();
+  };
+  sm.appendChild(addCost);
+  sm.appendChild(sumBox);
+  upd();
 
   // notes
   const s5 = section(d, t('Notizen'));

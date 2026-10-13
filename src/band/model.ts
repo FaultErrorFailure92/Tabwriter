@@ -54,6 +54,21 @@ export interface Gig {
   schedule: ScheduleItem[];
   contacts: Contact[];
   notes: string;
+  money: GigMoney;
+}
+
+export interface Cost {
+  id: string;
+  label: string; // e.g. "Sprit", "Proberaum"
+  amount: number;
+  paidBy: string; // Member.id who advanced it, '' = band cash
+}
+
+export interface GigMoney {
+  fee: number; // agreed fee
+  paid: boolean; // fee received
+  costs: Cost[];
+  note: string; // invoice no., payment terms …
 }
 
 // ---------- stage: equipment, inputs, monitors, cables ----------
@@ -189,7 +204,7 @@ export function normalize(d: any): Band {
   b.members = d.members ?? [];
   b.songs = d.songs ?? [];
   b.setlists = d.setlists ?? [];
-  b.gigs = d.gigs ?? [];
+  b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) } }));
   const g = d.gear ?? {};
   const e = emptyGear();
   b.gear = {
@@ -228,7 +243,33 @@ export function newGig(date: string): Gig {
     schedule: DEFAULT_SCHEDULE.map((label) => ({ id: uid('t'), label, time: '' })),
     contacts: [],
     notes: '',
+    money: newMoney(),
   };
+}
+
+export function newMoney(): GigMoney {
+  return { fee: 0, paid: false, costs: [], note: '' };
+}
+
+export function newCost(): Cost {
+  return { id: uid('$'), label: '', amount: 0, paidBy: '' };
+}
+
+/** fee minus costs, split evenly over the lineup; who advanced costs gets them back */
+export function settle(b: Band, g: Gig): { costs: number; net: number; share: number; payout: { member: string; amount: number }[] } {
+  const costs = g.money.costs.reduce((a, c) => a + (c.amount || 0), 0);
+  const net = (g.money.fee || 0) - costs;
+  const people = g.lineup.filter((id) => b.members.some((m) => m.id === id));
+  const share = people.length ? net / people.length : 0;
+  const payout = people.map((id) => ({
+    member: id,
+    amount: share + g.money.costs.filter((c) => c.paidBy === id).reduce((a, c) => a + (c.amount || 0), 0),
+  }));
+  return { costs, net, share, payout };
+}
+
+export function fmtMoney(v: number): string {
+  return (Math.round(v * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
 export function newContact(): Contact {
