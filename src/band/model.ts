@@ -24,6 +24,8 @@ export interface Song {
   todos: Todo[];
   sounds: SoundCue[]; // e.g. Helix patch per part
   lyrics: string;
+  /** guitar tuning, e.g. "Drop D" */
+  tuning: string;
   /** finished recordings and links (Spotify, YouTube, Bandcamp …) */
   media: SongMedia[];
 }
@@ -68,12 +70,20 @@ export interface SoundCue {
 
 export type SetItem =
   | { id: string; type: 'song'; song: string; note: string }
-  | { id: string; type: 'break'; label: string; duration: number };
+  | { id: string; type: 'break'; label: string; duration: number }
+  | { id: string; type: 'line'; label: string }
+  | { id: string; type: 'text'; text: string };
+
+export type SetCol = 'bpm' | 'key' | 'tuning' | 'dur' | 'note';
+export const SET_COLS: [SetCol, string][] = [['bpm', 'BPM'], ['key', 'Tonart'], ['tuning', 'Stimmung'], ['dur', 'Länge'], ['note', 'Notiz']];
+export const TUNINGS = ['E Standard', 'Eb Standard', 'D Standard', 'Drop D', 'Drop C#', 'Drop C', 'C Standard', 'Drop B', 'B Standard', 'Open G', 'Open D', 'DADGAD'];
 
 export interface Setlist {
   id: string;
   name: string;
   items: SetItem[];
+  /** columns shown in the editor and on the print */
+  cols?: SetCol[];
 }
 
 export interface Contact {
@@ -103,6 +113,86 @@ export interface Gig {
   notes: string;
   money: GigMoney;
   tickets: Tickets;
+  /** crew & helpers at this gig (from the band's crew pool) */
+  crew: GigCrew[];
+  /** contracts, invoices, receipts … (files in IndexedDB under memo:<id>) */
+  docs: GigDoc[];
+  /** links to photo / video albums */
+  photos: PhotoLink[];
+}
+
+export interface GigCrew {
+  id: string;
+  person: string; // Crew.id
+  task: string; // e.g. "Aufbau", "Fotos"
+  time: string; // when they should be there
+}
+
+export type DocKind = 'contract' | 'invoice' | 'receipt' | 'rider' | 'other';
+export interface GigDoc {
+  id: string;
+  kind: DocKind;
+  name: string;
+  file?: { name: string; type: string; size: number };
+  url: string; // alternatively a link
+  date: string;
+  amount: number;
+  cost: string; // Cost.id the receipt belongs to
+  note: string;
+}
+
+export interface PhotoLink {
+  id: string;
+  url: string;
+  label: string;
+  by: string; // Crew.id or Member.id
+}
+
+/** people around the band: photographers, helpers, sound engineers, drivers … */
+export interface Crew {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  address: string;
+  link: string; // website / portfolio / Instagram
+  note: string;
+}
+
+export const CREW_ROLES = ['Fotograf:in', 'Video', 'Helfer:in', 'Stagehand', 'Tontechnik', 'Licht', 'Fahrer:in', 'Merch', 'Booking', 'Management'];
+export const CREW_TASKS = ['Aufbau', 'Abbau', 'Fotos', 'Video', 'Merch-Stand', 'Fahren', 'Ton', 'Licht', 'Kasse'];
+
+export interface RiderVersion { id: string; version: string; date: string; changes: string; by: string }
+export interface RiderContact { id: string; topic: string; person: string; phone: string; email: string }
+
+/** settings for the technical & band rider (texts come from defaults, options are toggles/tags) */
+export interface Rider {
+  version: string;
+  history: RiderVersion[];
+  contacts: RiderContact[];
+  off: string[]; // sections switched off
+  texts: Record<string, string>; // own text per section (overrides the default)
+  backstage: string[];
+  drinks: string[];
+  catering: 'none' | 'welcome' | 'required';
+  diet: string[];
+  vehicles: number;
+  merch: boolean;
+  tracks: boolean; // click / backing tracks
+  ownFoh: boolean;
+  ownLight: boolean;
+  monitorsMin: number;
+  plotVersion: string;
+  lang?: 'de' | 'en';
+}
+
+export function newRider(): Rider {
+  return {
+    version: 'V1.0', history: [], contacts: [], off: [], texts: {},
+    backstage: ['storage', 'warmup', 'change', 'charge', 'eat'], drinks: ['water', 'beer'],
+    catering: 'welcome', diet: [], vehicles: 1, merch: false, tracks: false, ownFoh: false, ownLight: false, monitorsMin: 0, plotVersion: 'V1.0',
+  };
 }
 
 // ---------- ticket presale (Vorverkauf) ----------
@@ -354,6 +444,18 @@ export interface Band {
   contact: BandContact;
   /** to-dos that belong to no song */
   todos: Todo[];
+  crew: Crew[];
+  rider: Rider;
+  /** days a member has no time: "YYYY-MM-DD" */
+  away: Away[];
+}
+
+export interface Away {
+  id: string;
+  member: string;
+  from: string;
+  to: string; // inclusive, same as from for one day
+  note: string;
 }
 
 export interface BandContact {
@@ -405,7 +507,7 @@ export function newCable(): Cable {
 export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
-  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [] };
+  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [], crew: [], rider: newRider(), away: [] };
 }
 
 /** fill missing fields of older / hand-written files */
@@ -414,12 +516,15 @@ export function normalize(d: any): Band {
   const b = newBand(d.name ?? 'Band');
   b.setup = d.setup ?? !!(d.members?.length || d.songs?.length || d.gigs?.length || d.setlists?.length);
   b.members = d.members ?? [];
-  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [], lyrics: s.lyrics ?? '', media: s.media ?? [] }));
+  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [], lyrics: s.lyrics ?? '', media: s.media ?? [], tuning: s.tuning ?? '' }));
   b.setlists = d.setlists ?? [];
   b.logo = d.logo;
   b.contact = { ...b.contact, ...(d.contact ?? {}) };
   b.todos = d.todos ?? [];
-  b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) } }));
+  b.crew = d.crew ?? [];
+  b.rider = { ...newRider(), ...(d.rider ?? {}) };
+  b.away = d.away ?? [];
+  b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) }, crew: g.crew ?? [], docs: g.docs ?? [], photos: g.photos ?? [] }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
   const e = emptyGear();
@@ -438,7 +543,7 @@ export function newMember(): Member {
 }
 
 export function newSong(title = ''): Song {
-  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [], lyrics: '', media: [] };
+  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [], lyrics: '', media: [], tuning: '' };
 }
 
 export function newTodo(text = ''): Todo {
@@ -469,6 +574,9 @@ export function newGig(date: string): Gig {
     notes: '',
     money: newMoney(),
     tickets: newTickets(),
+    crew: [],
+    docs: [],
+    photos: [],
   };
 }
 
@@ -506,7 +614,7 @@ export function setlistDuration(b: Band, l: Setlist): number {
   let s = 0;
   for (const it of l.items) {
     if (it.type === 'break') s += it.duration;
-    else s += b.songs.find((x) => x.id === it.song)?.duration ?? 0;
+    else if (it.type === 'song') s += b.songs.find((x) => x.id === it.song)?.duration ?? 0;
   }
   return s;
 }
@@ -528,4 +636,8 @@ export function parseDur(txt: string): number | null {
   const parts = v.split(/[:.]/).map((p) => p.trim());
   if (parts.some((p) => !/^\d+$/.test(p))) return null;
   return parts.reduce((a, p) => a * 60 + Number(p), 0);
+}
+
+export function newCrew(): Crew {
+  return { id: uid('p'), name: '', role: '', phone: '', email: '', address: '', link: '', note: '' };
 }

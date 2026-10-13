@@ -975,7 +975,9 @@ async function importScores(files: File[] | null, multiple: boolean): Promise<Sc
         : alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
       const title = score.title || f.name.replace(/\.[^.]+$/, '');
       await addRecent({ title, artist: score.artist, fileName: f.name, tracks: score.tracks.map((tr) => tr.name) }, bytes);
-      out.push({ title, file: f.name, bpm: Math.round(getTempo(score)), duration: songDuration(score) });
+      const gt = score.tracks.find((tr) => !tr.staves[0]?.isPercussion && tr.staves[0]?.tuning.length >= 6);
+      const tn = gt ? (findPresetName(gt.staves[0].tuning).replace(/^Guitar /, '').replace(/ Tuning$/, '') || tuningToText(gt.staves[0].tuning)) : '';
+      out.push({ title, file: f.name, bpm: Math.round(getTempo(score)), duration: songDuration(score), tuning: tn });
     } catch (e: any) {
       flash(t('Datei konnte nicht geöffnet werden: {x}', { x: `${f.name} – ${e?.message ?? e}` }));
     }

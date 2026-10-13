@@ -329,13 +329,38 @@ await test('Setlist: drag songs in, reorder, print', async () => {
   await drag('.shelfRow:has-text("Eins")', '.setItems');
   await drag('.shelfRow:has-text("Zwei")', '.setRow', false);
   const order1 = await page.$$eval('.setRow .name', (x) => x.map((e) => e.textContent));
-  await drag('.setRow:nth-child(1) .meta', '.setRow:nth-child(2)', true);
+  await drag('.setRow:nth-child(2) .num', '.setRow:nth-child(3)', true);
   const order2 = await page.$$eval('.setRow .name', (x) => x.map((e) => e.textContent));
   await page.click('.dHead .tbtn');
   await page.click('#kitPop button:nth-child(1)');
   await page.waitForTimeout(300);
   const printed = await page.evaluate(() => [window.__printed || 0, !!document.querySelector('#printArea.setPrint')]);
   eq([order1, order2, printed[1]], [['Zwei', 'Eins'], ['Eins', 'Zwei'], true], 'drop, reorder, print');
+});
+
+await test('Rider, stage plot and calendar export from band data', async () => {
+  const r = await page.evaluate(async () => {
+    const M = await import('/src/band/model.ts');
+    const R = await import('/src/band/rider.ts');
+    const G = await import('/src/band/gigextra.ts');
+    const b = M.newBand('Testband');
+    const m = M.newMember();
+    m.name = 'Kim';
+    b.members.push(m);
+    b.gear.items.push({ ...M.newGearItem('amp', m.id), name: 'Kemper', note: '4x10"', onStage: true, x: 2, y: 3 });
+    b.gear.stage.members[m.id] = { x: 2, y: 1.5 };
+    b.crew.push({ ...M.newCrew(), name: 'Fotomensch', role: 'Fotograf:in' });
+    const g = M.newGig('2030-05-01');
+    g.title = 'Show';
+    g.lineup = [m.id];
+    g.crew = [{ id: 'w', person: b.crew[0].id, task: 'Fotos', time: '' }];
+    g.schedule[3].time = '20:00';
+    const h = R.riderHtml(b, g);
+    const ics = G.icsFor(b, [g], 'Testband');
+    b.away.push({ id: 'a', member: m.id, from: '2030-05-01', to: '2030-05-02', note: '' });
+    return [h.includes('Kemper'), h.includes('<svg class="plot"'), h.includes('Fotomensch'), /DTSTART:20300501T200000/.test(ics), G.awayOn(b, '2030-05-02')];
+  });
+  eq(r, [true, true, true, true, [r[4][0]]], 'rider, plot, crew, ics, away');
 });
 
 await test('No uncaught errors', async () => {

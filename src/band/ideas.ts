@@ -233,7 +233,7 @@ export function asciiTab(c: Clip): string {
 /** audio blobs for the band file export */
 export async function collectAudio(b: Band): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  const withAudio = [...b.ideas.filter((x) => x.audio), ...b.songs.flatMap((s) => s.media.filter((m) => m.audio))];
+  const withAudio = [...b.ideas.filter((x) => x.audio), ...b.songs.flatMap((s) => s.media.filter((m) => m.audio)), ...b.gigs.flatMap((g) => g.docs.filter((d) => d.file))];
   for (const it of withAudio) {
     const blob = await dbGet<Blob>(audioKey(it.id));
     if (!blob) continue;

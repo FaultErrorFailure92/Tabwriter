@@ -5,7 +5,9 @@ import { icon, type IconName } from '../icons';
 import { dbGet, dbPut, dbDelete } from '../library';
 import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
-import { renderStage, printRider } from './stage';
+import { renderStage } from './stage';
+import { riderPrintItems } from './rider';
+import { crewCard, gigCrewCard, renderDocs, renderCalendar, downloadIcs, awayOn } from './gigextra';
 import { renderTickets, printDoorList, importExcel } from './tickets';
 import { renderSongIdeas, collectAudio, restoreAudio, syllables, audioKey, audioDuration } from './ideas';
 import { INSTRUMENTS, instrumentOf, gearIcon, guessInstruments, type InstrumentPreset } from './catalog';
@@ -18,7 +20,7 @@ import {
 } from './kit';
 import {
   type Band, type Gig, type Setlist, type SetItem, type Member, type GearItem, type Todo, type TodoStatus,
-  type Song, newTodo, newSound, todoStatus,
+  type Song, type SetCol, SET_COLS, TUNINGS, newTodo, newSound, todoStatus,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
   setlistDuration, fmtDur, ticketTotals,
 } from './model';
@@ -68,6 +70,7 @@ export interface ScoreInfo {
   file: string;
   bpm: number;
   duration: number;
+  tuning?: string;
 }
 
 const baseName = (f: string) => f.split(/[\\/]/).pop() ?? f;
@@ -384,7 +387,10 @@ function renderMembers(main: HTMLElement) {
   const mc = card(right, t('Mitglieder'));
   if (!band.members.length) hint(mc, t('Noch keine Mitglieder.'));
   for (const m of band.members) mc.appendChild(memberRow(m));
+  crewCard(right, ctx());
 }
+
+const ctx = () => ({ b: band, rerender: render, confirm: (m: string) => host.confirm(m), flash: (m: string) => host.flash(m) });
 
 function memberRow(m: Member): HTMLElement {
   const r = el('div', 'memberRow');
@@ -606,6 +612,7 @@ function applyScore(s: Song, f: ScoreInfo) {
   if (!s.title.trim() || s.title === t('Neuer Song')) s.title = f.title;
   if (f.bpm) s.bpm = f.bpm;
   if (f.duration) s.duration = f.duration;
+  if (f.tuning && !s.tuning) s.tuning = f.tuning;
   save();
   render();
   host.flash(t('„{x}“ verknüpft', { x: baseName(f.file) }));
@@ -843,6 +850,13 @@ function songDetail(s: Song): HTMLElement {
   if (!s.bpm) bpm.value = '';
   row(s1, t('BPM'), bpm);
   row(s1, t('Tonart'), input(s, 'key', 'z.B. Em'));
+  const tu = input(s, 'tuning', 'E Standard');
+  tu.setAttribute('list', 'songTunings');
+  row(s1, t('Stimmung'), tu);
+  const tl = el('datalist');
+  tl.id = 'songTunings';
+  for (const x of TUNINGS) tl.appendChild(Object.assign(el('option'), { value: x }));
+  s1.appendChild(tl);
   const s2 = card(left, t('Notizen'));
   const ta = el('textarea', 'pInput notes');
   ta.placeholder = t('z.B. Capo 2, Fade-Out, Idee für die Bridge …');
@@ -1042,24 +1056,44 @@ function setlistDetail(l: Setlist): HTMLElement {
     ],
   });
 
-  const cols = el('div', 'gigCols wideLeft');
+  const wrap = el('div', 'gigCols wideLeft');
   const left = el('div');
   const right = el('div');
-  cols.append(left, right);
-  d.appendChild(cols);
+  wrap.append(left, right);
+  d.appendChild(wrap);
 
+  const cols = l.cols ?? ['bpm', 'key', 'tuning', 'dur', 'note'];
+  const colBtn = iconBtn('list', t('Spalten'), () => popMenu(colBtn, SET_COLS.map(([k, lb]): MenuItem => ({ icon: cols.includes(k) ? 'checkmark' : 'minus', label: t(lb), fn: () => {
+    l.cols = cols.includes(k) ? cols.filter((x) => x !== k) : SET_COLS.map(([x]) => x).filter((x) => x === k || cols.includes(x));
+    save();
+    render();
+  } }))), 'tb');
   const c = card(left, t('Ablauf'), {
-    addTip: t('Pause / Ansage hinzufügen'),
-    add: () => {
-      l.items.push({ id: uid('i'), type: 'break', label: t('Pause'), duration: 0 });
-      save();
-      render();
-    },
+    extra: [colBtn],
+    addTip: t('Pause, Trennlinie oder Freitext'),
+    add: (a) => popMenu(a, [
+      { icon: 'pause', label: t('Pause / Ansage'), fn: () => { l.items.push({ id: uid('i'), type: 'break', label: t('Pause'), duration: 0 }); save(); render(); } },
+      { icon: 'minus', label: t('Trennlinie'), fn: () => { l.items.push({ id: uid('i'), type: 'line', label: '' }); save(); render(); } },
+      { icon: 'textInfo', label: t('Freitext'), fn: () => { l.items.push({ id: uid('i'), type: 'text', text: '' }); save(); render(); const all = root.querySelectorAll<HTMLInputElement>('.setRow.txt input'); all[all.length - 1]?.focus(); } },
+    ]),
   });
+  const W: Record<SetCol, string> = { bpm: '50px', key: '44px', tuning: '100px', dur: '48px', note: 'minmax(70px, 1fr)' };
+  const grid = `16px 20px minmax(90px, 1.5fr) ${cols.map((k) => W[k]).join(' ')} 22px`;
   const items = el('div', 'setItems');
+  items.style.setProperty('--cols', grid);
+  if (l.items.some((x) => x.type === 'song')) {
+    const hd = el('div', 'setHead', `<span></span><span></span><span>${esc(t('Song'))}</span>${cols.map((k) => `<span>${esc(t(SET_COLS.find(([x]) => x === k)![1]))}</span>`).join('')}<span></span>`);
+    items.appendChild(hd);
+  }
   let n = 0;
+  const upd = () => {
+    const m = root.querySelector('.dHead .dMeta');
+    if (m) m.textContent = fmtDur(setlistDuration(band, l));
+    const tt = root.querySelector('.setTotal b');
+    if (tt) tt.textContent = fmtDur(setlistDuration(band, l));
+  };
   l.items.forEach((it, i) => {
-    const r = el('div', 'setRow' + (it.type === 'break' ? ' brk' : ''));
+    const r = el('div', 'setRow ' + it.type);
     r.dataset.i = String(i);
     const grip = el('span', 'grip', icon('grip', 14));
     grip.dataset.tip = t('Ziehen zum Verschieben');
@@ -1074,23 +1108,40 @@ function setlistDetail(l: Setlist): HTMLElement {
         nm.onclick = () => void openSongFile(s.file);
       }
       r.appendChild(nm);
-      r.appendChild(el('span', 'meta', esc([s?.key, s?.bpm ? `${s.bpm} bpm` : ''].filter(Boolean).join(' · '))));
-      r.appendChild(input(it, 'note', t('Notiz, z.B. Fade-Out'), undefined, 'pInput note'));
-      r.appendChild(el('span', 'dur', s?.duration ? fmtDur(s.duration) : '–'));
-    } else {
+      for (const k of cols) {
+        if (!s) { r.appendChild(el('span')); continue; }
+        if (k === 'bpm') {
+          const b2 = input(s, 'bpm', '–', undefined, 'pInput num', 'number');
+          if (!s.bpm) b2.value = '';
+          r.appendChild(b2);
+        } else if (k === 'key') r.appendChild(input(s, 'key', '–', undefined, 'pInput key'));
+        else if (k === 'tuning') {
+          const tu = input(s, 'tuning', '–', undefined, 'pInput tun');
+          tu.setAttribute('list', 'tunings');
+          r.appendChild(tu);
+        } else if (k === 'dur') r.appendChild(durInput(s, upd));
+        else r.appendChild(input(it, 'note', t('Notiz, z.B. Fade-Out'), undefined, 'pInput note'));
+      }
+    } else if (it.type === 'break') {
       r.appendChild(el('span', 'num', icon('pause', 12)));
       r.appendChild(input(it, 'label', t('Pause / Ansage'), undefined, 'pInput name'));
-      r.appendChild(el('span', 'meta'));
-      r.appendChild(el('span', 'note'));
-      r.appendChild(durInput(it, () => {
-        const m = root.querySelector('.dHead .dMeta');
-        if (m) m.textContent = fmtDur(setlistDuration(band, l));
-      }));
+      for (const k of cols) r.appendChild(k === 'dur' ? durInput(it, upd) : el('span'));
+    } else if (it.type === 'line') {
+      const ln = el('span', 'lineBox');
+      ln.appendChild(input(it, 'label', t('optional, z.B. Zugabe'), undefined, 'pInput lineLabel'));
+      r.appendChild(ln);
+    } else {
+      r.appendChild(el('span', 'num', icon('textInfo', 12)));
+      r.appendChild(input(it, 'text', t('Freitext, z.B. Gitarre umstimmen, Ansage Merch …'), undefined, 'pInput txt'));
     }
     r.appendChild(iconBtn('xmark', t('Entfernen'), () => { l.items.splice(i, 1); save(); render(); }, 'tb'));
     items.appendChild(r);
   });
   c.appendChild(items);
+  const tl = el('datalist');
+  tl.id = 'tunings';
+  for (const x of TUNINGS) tl.appendChild(Object.assign(el('option'), { value: x }));
+  c.appendChild(tl);
   if (!l.items.length) items.appendChild(el('div', 'setEmpty', esc(band.songs.length ? t('Songs von rechts hierher ziehen oder anklicken.') : t('Noch keine Songs in der Band. Lege sie unter „Songs“ an.'))));
   c.appendChild(el('div', 'setTotal', `<span>${esc(t('{n} Songs', { n }))}</span><b>${fmtDur(setlistDuration(band, l))}</b>`));
 
@@ -1201,13 +1252,19 @@ function setlistDrag(box: HTMLElement, shelf: HTMLElement, move: (from: number, 
 
 function printSetlist(l: Setlist, big: boolean) {
   let n = 0;
-  const rows = l.items.map((it) => {
-    if (it.type === 'break') return `<tr class="brk"><td></td><td>${esc(it.label || t('Pause'))}</td>${big ? '' : '<td></td><td></td>'}<td class="r">${it.duration ? fmtDur(it.duration) : ''}</td></tr>`;
+  const cols = (l.cols ?? ['bpm', 'key', 'tuning', 'dur', 'note']).filter((k) => !big || k !== 'note');
+  const nc = cols.length + 2;
+  const val = (k: SetCol, s: Song | undefined, note: string) => k === 'bpm' ? (s?.bpm ? String(s.bpm) : '') : k === 'key' ? s?.key ?? '' : k === 'tuning' ? s?.tuning ?? '' : k === 'dur' ? (s?.duration ? fmtDur(s.duration) : '') : note;
+  const thead = big ? '' : `<tr class="hd"><td></td><td>${esc(t('Song'))}</td>${cols.map((k) => `<td>${esc(t(SET_COLS.find(([x]) => x === k)![1]))}</td>`).join('')}</tr>`;
+  const rows = thead + l.items.map((it) => {
+    if (it.type === 'break') return `<tr class="brk"><td></td><td>${esc(it.label || t('Pause'))}</td>${cols.map((k) => `<td class="r">${k === 'dur' && it.duration ? fmtDur(it.duration) : ''}</td>`).join('')}</tr>`;
+    if (it.type === 'line') return `<tr class="line"><td colspan="${nc}"><span>${esc(it.label)}</span></td></tr>`;
+    if (it.type === 'text') return `<tr class="txt"><td></td><td colspan="${nc - 1}">${esc(it.text)}</td></tr>`;
     const s = band.songs.find((x) => x.id === it.song);
     n++;
     return big
-      ? `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? `<i>${esc(it.note)}</i>` : ''}</td><td class="r">${esc(s?.key ?? '')}</td></tr>`
-      : `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? ` <i>${esc(it.note)}</i>` : ''}</td><td>${esc(s?.key ?? '')}</td><td>${s?.bpm ? s.bpm + ' bpm' : ''}</td><td class="r">${s?.duration ? fmtDur(s.duration) : ''}</td></tr>`;
+      ? `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? `<i>${esc(it.note)}</i>` : ''}</td>${cols.map((k) => `<td class="r">${esc(val(k, s, ''))}</td>`).join('')}</tr>`
+      : `<tr><td class="n">${n}</td><td><b>${esc(s?.title ?? '')}</b></td>${cols.map((k) => `<td${k === 'dur' ? ' class="r"' : ''}>${esc(val(k, s, it.note))}</td>`).join('')}</tr>`;
   }).join('');
   const css = big
     ? `#printArea.setPrint{font:600 30px -apple-system,Helvetica,Arial,sans-serif;color:#000;padding:4px}
@@ -1216,14 +1273,16 @@ function printSetlist(l: Setlist, big: boolean) {
 .setPrint tr+tr td{border-top:1px solid #ccc}.setPrint .n{width:52px;color:#888;font-weight:500}
 .setPrint i{display:block;font:italic 400 17px -apple-system,Helvetica,Arial,sans-serif;color:#444}
 .setPrint .r{text-align:right;color:#666;font-size:22px;font-weight:500}.setPrint .brk td{font:italic 400 20px -apple-system,Helvetica,Arial,sans-serif;color:#666}
-.setPrint tr{break-inside:avoid}`
+.setPrint tr{break-inside:avoid}.setPrint .line td{border-top:3px solid #000!important;padding:2px 8px;font:italic 500 16px -apple-system,Helvetica,Arial,sans-serif;color:#444}
+.setPrint .txt td{font:italic 400 18px -apple-system,Helvetica,Arial,sans-serif;color:#333}`
     : `#printArea.setPrint{font:13px -apple-system,Helvetica,Arial,sans-serif;color:#111;padding:8px}
 .setPrint h1{font-size:22px;margin:0 0 4px;display:flex;align-items:center;gap:10px}.setPrint h1 img{height:30px}.setPrint .sub{color:#555;margin-bottom:16px}
 .setPrint table{border-collapse:collapse;width:100%}.setPrint td{padding:5px 6px;vertical-align:top}
 .setPrint tr+tr td{border-top:0.5px solid #ddd}.setPrint .n{width:28px;color:#777}.setPrint .r{text-align:right}
-.setPrint .brk td{color:#777;font-style:italic}.setPrint tfoot td{border-top:1px solid #999;font-weight:600}`;
+.setPrint .brk td{color:#777;font-style:italic}.setPrint tfoot td{border-top:1px solid #999;font-weight:600}
+.setPrint .hd td{font-size:11px;color:#666;font-weight:600}.setPrint .line td{border-top:2px solid #000!important;font-style:italic;color:#555}.setPrint .txt td{font-style:italic;color:#333}`;
   const head = `<h1>${band.logo ? `<img src="${band.logo}" alt="">` : ''}<span>${esc(band.name)} – ${esc(l.name)}</span></h1>`;
-  const html = `<style>${css}</style>${head}${big ? '' : `<div class="sub">${esc(t('{n} Songs', { n }))} · ${fmtDur(setlistDuration(band, l))}</div>`}<table>${rows}${big ? '' : `<tfoot><tr><td></td><td>${esc(t('Gesamt'))}</td><td></td><td></td><td class="r">${fmtDur(setlistDuration(band, l))}</td></tr></tfoot>`}</table>`;
+  const html = `<style>${css}</style>${head}${big ? '' : `<div class="sub">${esc(t('{n} Songs', { n }))} · ${fmtDur(setlistDuration(band, l))}</div>`}<table>${rows}${big ? '' : `<tfoot><tr><td></td><td>${esc(t('Gesamt'))}</td>${cols.map((k) => `<td class="r">${k === 'dur' ? fmtDur(setlistDuration(band, l)) : ''}</td>`).join('')}</tr></tfoot>`}</table>`;
   document.getElementById('printArea')?.remove();
   const area = el('div', 'setPrint', html);
   area.id = 'printArea';
@@ -1234,14 +1293,23 @@ function printSetlist(l: Setlist, big: boolean) {
 
 // ---------------- gigs ----------------
 
-let gigSub: 'plan' | 'tickets' | 'money' = 'plan';
+let gigSub: 'plan' | 'tickets' | 'money' | 'docs' = 'plan';
 
 function gigLabel(g: Gig) {
   return g.title || g.venue || t('Gig');
 }
 
+let gigView: 'list' | 'cal' = 'list';
+
 function renderGigs(main: HTMLElement) {
-  pageHead(main, { title: t('Gigs'), primary: { label: t('Gig'), tip: t('Gig anlegen'), fn: () => void gigWizard() } });
+  const exp = iconBtn('calendar', t('Alle Gigs als Kalender (.ics)'), () => void downloadIcs(band, band.gigs, `${band.name} Gigs`, (m) => host.flash(m)), 'tbtn');
+  pageHead(main, {
+    title: t('Gigs'),
+    tabs: tabs<'list' | 'cal'>([['list', t('Liste')], ['cal', t('Kalender')]], gigView, (k) => { gigView = k; render(); }),
+    actions: band.gigs.length ? [exp] : [],
+    primary: { label: t('Gig'), tip: t('Gig anlegen'), fn: () => void gigWizard() },
+  });
+  if (gigView === 'cal') return renderCalendar(main, ctx(), (id) => { selGig = id; gigView = 'list'; render(); });
   if (!band.gigs.length) return emptyState(main, t('Noch keine Gigs.'));
   if (!band.gigs.some((g) => g.id === selGig)) selGig = band.gigs[0].id;
   const now = today();
@@ -1299,7 +1367,8 @@ function gigDetail(g: Gig): HTMLElement {
     meta: fmtDate(g.date, false),
     menu: () => [
       { icon: 'printer', label: t('Tagesplan drucken'), fn: () => printGig(g) },
-      { icon: 'stagePlan', label: t('Rider drucken'), fn: () => printRider(band, g) },
+      ...riderPrintItems(band, g),
+      { icon: 'calendar', label: t('Kalendereinladung (.ics)'), fn: () => void downloadIcs(band, [g], `${gigLabel(g)} ${g.date}`, (m) => host.flash(m)) },
       { icon: 'ticket', label: t('Türliste drucken'), fn: () => printDoorList(band, g) },
       'sep',
       { icon: 'folder', label: t('Vorverkauf aus Excel importieren …'), fn: () => importExcel(band, g, render, (m) => host.confirm(m), (m) => host.flash(m)) },
@@ -1320,13 +1389,14 @@ function gigDetail(g: Gig): HTMLElement {
         render();
       } },
     ],
-    tabs: tabs<'plan' | 'tickets' | 'money'>([['plan', t('Planung')], ['tickets', t('Vorverkauf')], ['money', t('Abrechnung')]], gigSub, (k) => {
+    tabs: tabs<'plan' | 'tickets' | 'money' | 'docs'>([['plan', t('Planung')], ['tickets', t('Vorverkauf')], ['money', t('Abrechnung')], ['docs', t('Dokumente'), g.docs.length + g.photos.length]], gigSub, (k) => {
       gigSub = k;
       render();
     }, 'gigSeg'),
   });
   if (gigSub === 'tickets') renderTickets(d, band, g, render, (m) => host.confirm(m));
   else if (gigSub === 'money') renderMoney(d, g, refreshItem);
+  else if (gigSub === 'docs') renderDocs(d, g, ctx());
   else renderPlan(d, g, refreshItem);
   return d;
 }
@@ -1364,10 +1434,11 @@ function renderPlan(d: HTMLElement, g: Gig, refreshItem: () => void) {
     render();
   }), goSl);
   const lineup = el('div', 'lineup');
+  const away = g.date ? awayOn(band, g.date) : [];
   for (const m of band.members) {
     const on = g.lineup.includes(m.id);
-    const c = el('button', 'chipBtn' + (on ? ' on' : ''), esc(m.name || '?'));
-    c.dataset.tip = m.role;
+    const c = el('button', 'chipBtn' + (on ? ' on' : '') + (away.includes(m.id) ? ' away' : ''), esc(m.name || '?'));
+    c.dataset.tip = away.includes(m.id) ? t('{x} hat an diesem Tag keine Zeit', { x: m.name }) : m.role;
     c.onclick = () => {
       g.lineup = on ? g.lineup.filter((x) => x !== m.id) : [...g.lineup, m.id];
       save();
@@ -1376,6 +1447,8 @@ function renderPlan(d: HTMLElement, g: Gig, refreshItem: () => void) {
     lineup.appendChild(c);
   }
   row(s3, t('Besetzung'), lineup);
+
+  gigCrewCard(right, g, ctx());
 
   const s4 = card(right, t('Kontakte'), { addTip: t('Kontakt hinzufügen'), add: () => { g.contacts.push(newContact()); save(); render(); } });
   if (!g.contacts.length) hint(s4, t('z.B. Veranstalter, Techniker, Booking'));
@@ -1551,7 +1624,7 @@ export async function bandWizard(replace = false) {
     const p = instrumentOf(m.ins);
     if (p) addGear(b, nm.id, p.gear, p.id);
   }
-  for (const f of r.songs) b.songs.push({ ...newSong(f.title), file: f.file, bpm: f.bpm, duration: f.duration });
+  for (const f of r.songs) b.songs.push({ ...newSong(f.title), file: f.file, bpm: f.bpm, duration: f.duration, tuning: f.tuning ?? '' });
   b.setup = true;
   tab = 'home';
   save();
@@ -1655,6 +1728,7 @@ async function songWizard() {
     s.file = r.picked.file;
     s.bpm = r.picked.bpm;
     s.duration = r.picked.duration;
+    s.tuning = r.picked.tuning ?? '';
   }
   band.songs.push(s);
   selSong = s.id;
@@ -1732,8 +1806,11 @@ async function gigWizard() {
             wizField(box, t('Setlist'), sel);
           }
           const lineup = el('div', 'lineup');
+          const away = awayOn(band, s.date);
+          if (away.length) s.lineup = s.lineup.filter((x) => !away.includes(x));
           for (const m of band.members) {
-            const c = el('button', 'chipBtn' + (s.lineup.includes(m.id) ? ' on' : ''), esc(m.name || '?'));
+            const c = el('button', 'chipBtn' + (s.lineup.includes(m.id) ? ' on' : '') + (away.includes(m.id) ? ' away' : ''), esc(m.name || '?'));
+            if (away.includes(m.id)) c.dataset.tip = t('{x} hat an diesem Tag keine Zeit', { x: m.name });
             c.type = 'button';
             c.onclick = () => {
               s.lineup = s.lineup.includes(m.id) ? s.lineup.filter((x) => x !== m.id) : [...s.lineup, m.id];
@@ -1769,6 +1846,8 @@ function printGig(g: Gig) {
   const setRows = sl
     ? sl.items.map((it) => {
         if (it.type === 'break') return `<tr class="brk"><td></td><td>${esc(it.label)}</td><td></td><td>${it.duration ? fmtDur(it.duration) : ''}</td></tr>`;
+        if (it.type === 'line') return `<tr class="brk"><td colspan="4" style="border-top:2px solid #000">${esc(it.label)}</td></tr>`;
+        if (it.type === 'text') return `<tr class="brk"><td></td><td colspan="3">${esc(it.text)}</td></tr>`;
         const s = band.songs.find((x) => x.id === it.song);
         n++;
         return `<tr><td>${n}</td><td><b>${esc(s?.title ?? '')}</b>${it.note ? ` <i>${esc(it.note)}</i>` : ''}</td><td>${esc([s?.key, s?.bpm ? s.bpm + ' bpm' : ''].filter(Boolean).join(' · '))}</td><td>${s?.duration ? fmtDur(s.duration) : ''}</td></tr>`;
@@ -1786,7 +1865,7 @@ function printGig(g: Gig) {
 <h1>${esc(gigLabel(g))}</h1>
 <div class="sub">${esc(fmtDate(g.date))}${g.venue ? ' · ' + esc(g.venue) : ''}${g.address ? ' · ' + esc(g.address) : ''}</div>
 <div class="cols"><div><h2>${esc(t('Zeitplan'))}</h2><table>${g.schedule.filter((s) => s.time || s.label).map((s) => `<tr><td style="width:60px"><b>${esc(s.time)}</b></td><td>${esc(s.label)}</td></tr>`).join('')}</table></div>
-<div><h2>${esc(t('Besetzung'))}</h2><table>${members.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.role)}</td><td style="text-align:right">${esc(m.phone)}</td></tr>`).join('')}</table></div></div>
+<div><h2>${esc(t('Besetzung'))}</h2><table>${members.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.role)}</td><td style="text-align:right">${esc(m.phone)}</td></tr>`).join('')}${g.crew.map((w) => { const p = band.crew.find((x) => x.id === w.person); return p ? `<tr><td>${esc(p.name)}</td><td>${esc(w.task || p.role)}${w.time ? ' · ' + esc(w.time) : ''}</td><td style="text-align:right">${esc(p.phone)}</td></tr>` : ''; }).join('')}</table></div></div>
 ${g.contacts.length ? `<h2>${esc(t('Kontakte'))}</h2><table>${g.contacts.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.phone)}</td><td>${esc(c.email)}</td></tr>`).join('')}</table>` : ''}
 ${sl ? `<h2>${esc(t('Setlist'))}: ${esc(sl.name)} · ${fmtDur(setlistDuration(band, sl))}</h2><table class="set">${setRows}</table>` : ''}
 ${g.notes ? `<h2>${esc(t('Notizen'))}</h2><pre>${esc(g.notes)}</pre>` : ''}`;

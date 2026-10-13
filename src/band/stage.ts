@@ -3,6 +3,8 @@ import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, iconBtn, input, select, moveItem, esc, save } from './dom';
 import { pageHead, tabs, card, hint, toggle, popMenu } from './kit';
+import { renderRiderSettings, riderPrintItems } from './rider';
+export { printRider } from './rider';
 import { chainOf, gearLabel, gearAddItems, gearKindItems, modelField, kindButton, syncRole } from './gear';
 import { openPrintDialog } from '../print';
 import {
@@ -11,7 +13,7 @@ import {
   newGearItem, newInput, newMonitor, newCable, fmtDur, setlistDuration,
 } from './model';
 
-export type StageTab = 'gear' | 'plan' | 'inputs' | 'cables' | 'bom';
+export type StageTab = 'gear' | 'plan' | 'inputs' | 'cables' | 'bom' | 'rider';
 let sub: StageTab = 'gear';
 let selected = ''; // stage plan selection: 'm:<memberId>' or gear id
 let ask: (msg: string) => Promise<boolean> = async () => true;
@@ -60,9 +62,9 @@ function renumber(b: Band, member: string) {
 
 export function renderStage(main: HTMLElement, b: Band, rerender: () => void, confirmFn: (msg: string) => Promise<boolean>) {
   ask = confirmFn;
-  const tabItems: [StageTab, string][] = [['gear', t('Equipment')], ['plan', t('Bühnenplan')], ['inputs', t('Kanäle')], ['cables', t('Kabel')], ['bom', t('Stückliste')]];
+  const tabItems: [StageTab, string][] = [['gear', t('Equipment')], ['plan', t('Bühnenplan')], ['inputs', t('Kanäle')], ['cables', t('Kabel')], ['bom', t('Stückliste')], ['rider', t('Rider')]];
   const pr = iconBtn('printer', t('Drucken'), () => popMenu(pr, [
-    { icon: 'stagePlan', label: t('Rider drucken (Bühnenplan, Kanäle, Monitore, Backline)'), fn: () => printRider(b, null) },
+    ...riderPrintItems(b, null),
     { icon: 'list', label: t('Packliste drucken'), fn: () => printPacking(b) },
   ]), 'tbtn');
   pageHead(main, {
@@ -77,7 +79,8 @@ export function renderStage(main: HTMLElement, b: Band, rerender: () => void, co
   else if (sub === 'plan') renderPlan(main, b, rerender);
   else if (sub === 'inputs') renderInputs(main, b, rerender);
   else if (sub === 'cables') renderCables(main, b, rerender);
-  else renderBom(main, b);
+  else if (sub === 'bom') renderBom(main, b);
+  else renderRiderSettings(main, b, rerender);
 }
 
 // ---------------- equipment ----------------
@@ -598,22 +601,4 @@ function printHtml(body: string) {
   void openPrintDialog();
 }
 
-export function riderHtml(b: Band, g: Gig | null): string {
-  const inputs = [...b.gear.inputs].sort((a, z) => a.ch - z.ch);
-  const members = g ? b.members.filter((m) => g.lineup.includes(m.id)) : b.members;
-  const backline = b.gear.items.filter((x) => x.owner === 'venue' || x.owner === 'rental');
-  const sl = g ? b.setlists.find((l) => l.id === g.setlist) : null;
-  let h = `<h1>${esc(t('Technical Rider'))} – ${esc(b.name)}</h1>`;
-  if (g) h += `<div class="sub">${esc(g.title || g.venue)} · ${esc(g.date)}${g.venue ? ' · ' + esc(g.venue) : ''}${sl ? ' · ' + esc(t('Spielzeit')) + ' ' + fmtDur(setlistDuration(b, sl)) : ''}</div>`;
-  h += `<h2>${esc(t('Besetzung'))}</h2><table>${members.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.role)}</td></tr>`).join('')}</table>`;
-  h += `<h2>${esc(t('Bühnenplan'))}</h2>${stageSvg(b, '', true)}`;
-  if (inputs.length) h += `<h2>${esc(t('Kanalliste'))}</h2><table><tr><th>${esc(t('Kanal'))}</th><th>${esc(t('Quelle'))}</th><th>${esc(t('Mikro / DI'))}</th><th>${esc(t('Stativ'))}</th><th>48V</th><th>${esc(t('Notiz'))}</th></tr>${inputs.map((c) => `<tr><td>${c.ch}</td><td>${esc(c.source)}</td><td>${esc(c.mic)}</td><td>${esc(t(c.stand))}</td><td>${c.phantom ? '✓' : ''}</td><td>${esc(c.note)}</td></tr>`).join('')}</table>`;
-  if (b.gear.monitors.length) h += `<h2>${esc(t('Monitore'))}</h2><table>${b.gear.monitors.map((m) => `<tr><td>${esc(m.name)}</td><td>${m.kind === 'iem' ? 'In-Ear' : 'Wedge'}</td><td>${esc(m.members.map((x) => memberName(b, x)).join(', '))}</td><td>${esc(m.note)}</td></tr>`).join('')}</table>`;
-  if (backline.length) h += `<h2>${esc(t('Bitte vor Ort bereitstellen'))}</h2><table>${backline.map((x) => `<tr><td class="need">${esc(kindLabel(x.kind))}</td><td>${esc(x.name)}</td><td>${esc(x.note)}</td></tr>`).join('')}</table>`;
-  if (g?.contacts.length) h += `<h2>${esc(t('Kontakte'))}</h2><table>${g.contacts.map((c) => `<tr><td>${esc(c.name)}</td><td>${esc(c.role)}</td><td>${esc(c.phone)}</td><td>${esc(c.email)}</td></tr>`).join('')}</table>`;
-  return h;
-}
 
-export function printRider(b: Band, g: Gig | null) {
-  printHtml(riderHtml(b, g));
-}
