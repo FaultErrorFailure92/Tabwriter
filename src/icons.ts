@@ -70,6 +70,9 @@ export const ICONS = {
   house: '<path d="M2.4 7.6 8 2.8l5.6 4.8"/><path d="M3.8 6.6v6.6h3V9.8h2.4v3.4h3V6.6"/>',
   mic: '<rect x="5.8" y="1.8" width="4.4" height="7.6" rx="2.2"/><path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2"/>',
   fretboard: '<rect x="1.6" y="4" width="12.8" height="8" rx="1.4"/><path d="M5 4v8M8.4 4v8M11.6 4v8" stroke-width="1"/><path d="M1.6 6.6h12.8M1.6 9.4h12.8" stroke-width=".8"/>',
+  ticket: '<path d="M2 5.2c0-.7.5-1.2 1.2-1.2h9.6c.7 0 1.2.5 1.2 1.2v1.3a1.5 1.5 0 0 0 0 3v1.3c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2V9.5a1.5 1.5 0 0 0 0-3z"/><path d="M10 4v8" stroke-dasharray="1.2 1.2"/>',
+  euro: '<path d="M11.6 4.2A4.4 4.4 0 1 0 11.6 11.8"/><path d="M2.6 6.8h6M2.6 9.2h6"/>',
+  cashbox: '<rect x="2" y="5.4" width="12" height="7.6" rx="1.4"/><path d="M5 5.4V4c0-.8.6-1.4 1.4-1.4h3.2c.8 0 1.4.6 1.4 1.4v1.4M2 8.6h12"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
 };
 

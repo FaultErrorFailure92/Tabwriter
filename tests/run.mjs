@@ -166,6 +166,40 @@ await test('Band: members, songs, setlist duration, gig settlement', async () =>
   eq(r, ['6:00', 400, [300, 200]], 'duration, net, payout');
 });
 
+await test('Tickets: moves, buyers, tiers and totals', async () => {
+  const r = await page.evaluate(async () => {
+    const M = await import('/src/band/model.ts');
+    const t = M.newTickets();
+    t.tiers = [{ from: 0, share: 3 }, { from: 50, share: 5 }];
+    t.moves.push(M.newMove('venue', 'band', 100), M.newMove('band', 'm1', 20));
+    const b1 = M.newBuyer('m1');
+    b1.normal = 3;
+    b1.held = 1;
+    b1.paid = true;
+    const b2 = M.newBuyer('band');
+    b2.normal = 50;
+    b2.cash = true;
+    b2.paid = true;
+    t.buyers.push(b1, b2);
+    const s = M.ticketStats(t, 'm1');
+    const tot = M.ticketTotals(t);
+    return [s.received, s.sold, s.available, s.money, M.bandShare(t.tiers, 60), tot.sold, tot.money];
+  });
+  eq(r, [20, 4, 20, 60, 200, 54, 810], 'stats, share, totals');
+});
+
+await test('Tickets UI: presale tab renders', async () => {
+  await page.click('.flowStep:nth-child(1)');
+  await page.click('.bandTop .tbtn');
+  await page.keyboard.press('Meta+5');
+  await page.click('.bandTop .tbtn');
+  await page.click('.gigSeg button:nth-child(2)');
+  await page.waitForSelector('.tkSummary');
+  const n = await page.$$eval('.tkSummary .tkTile', (x) => x.length);
+  if (n < 4 || !(await page.$('.tkSellers'))) throw new Error(`tiles ${n}`);
+  await page.screenshot({ path: process.env.SHOT || '/dev/null' }).catch(() => {});
+});
+
 await test('Stage: input list and cables suggested from gear', async () => {
   await page.click('.flowStep:nth-child(1)');
   for (const [n, role] of [['A', 'Gitarre, Gesang'], ['B', 'Drums']]) {

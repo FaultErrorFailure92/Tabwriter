@@ -84,6 +84,130 @@ export interface Gig {
   contacts: Contact[];
   notes: string;
   money: GigMoney;
+  tickets: Tickets;
+}
+
+// ---------- ticket presale (Vorverkauf) ----------
+// Successor of the "Karten VVK" Excel: the band gets a contingent from the venue,
+// hands tickets to sellers (members), sellers keep buyer lists and collect the money.
+
+/** "venue" = organizer, "band" = band cash box, otherwise Member.id */
+export type Holder = string;
+
+export interface TicketMove {
+  id: string;
+  date: string;
+  count: number;
+  from: Holder;
+  to: Holder;
+  note: string;
+}
+
+export interface Buyer {
+  id: string;
+  name: string;
+  seller: Holder; // who sold it
+  normal: number; // tickets handed out (paid in advance)
+  held: number; // deposited at the box office ("hinterlegt", paid in advance)
+  door: number; // on the presale list at the door (pays there, presale price)
+  handed: boolean; // tickets given to the buyer
+  paid: boolean; // money received by the seller
+  cash: boolean; // money passed on to the band cash
+  cashDate: string;
+  note: string;
+}
+
+export interface PriceTier {
+  from: number; // from this many sold tickets on …
+  share: number; // … the band gets this much per ticket
+}
+
+export interface Tickets {
+  presale: number; // VVK price
+  door: number; // Abendkasse price
+  tiers: PriceTier[];
+  moves: TicketMove[];
+  buyers: Buyer[];
+  doorSold: number; // sold at the box office on the night (optional, after the gig)
+}
+
+export function newTickets(): Tickets {
+  return { presale: 15, door: 17, tiers: [{ from: 0, share: 3 }], moves: [], buyers: [], doorSold: 0 };
+}
+
+export function newBuyer(seller: Holder): Buyer {
+  return { id: uid('v'), name: '', seller, normal: 1, held: 0, door: 0, handed: false, paid: false, cash: false, cashDate: '', note: '' };
+}
+
+export function newMove(from: Holder, to: Holder, count: number): TicketMove {
+  return { id: uid('w'), date: new Date().toISOString().slice(0, 10), count, from, to, note: '' };
+}
+
+/** band share for n sold tickets: tiers apply per ticket from their threshold on */
+export function bandShare(tiers: PriceTier[], n: number): number {
+  const ts = [...tiers].sort((a, b) => a.from - b.from);
+  let sum = 0;
+  for (let i = 0; i < ts.length; i++) {
+    const a = Math.max(0, ts[i].from);
+    const z = i + 1 < ts.length ? ts[i + 1].from : Infinity;
+    const k = Math.max(0, Math.min(n, z) - a);
+    sum += k * (ts[i].share || 0);
+  }
+  return sum;
+}
+
+export interface HolderStats {
+  holder: Holder;
+  received: number; // via moves
+  given: number; // via moves
+  sold: number; // normal + held of their buyers
+  doorList: number;
+  handed: number; // tickets physically given to buyers (normal, handed)
+  available: number; // received - given - handed
+  money: number;
+  paid: number;
+  cash: number;
+}
+
+export function ticketStats(t: Tickets, holder: Holder): HolderStats {
+  const received = t.moves.filter((m) => m.to === holder).reduce((a, m) => a + m.count, 0);
+  const given = t.moves.filter((m) => m.from === holder).reduce((a, m) => a + m.count, 0);
+  const bs = t.buyers.filter((b) => b.seller === holder);
+  const sold = bs.reduce((a, b) => a + b.normal + b.held, 0);
+  const handed = bs.filter((b) => b.handed).reduce((a, b) => a + b.normal, 0);
+  const val = (b: Buyer) => (b.normal + b.held) * t.presale;
+  return {
+    holder,
+    received,
+    given,
+    sold,
+    doorList: bs.reduce((a, b) => a + b.door, 0),
+    handed,
+    available: received - given - handed,
+    money: bs.reduce((a, b) => a + val(b), 0),
+    paid: bs.filter((b) => b.paid).reduce((a, b) => a + val(b), 0),
+    cash: bs.filter((b) => b.cash).reduce((a, b) => a + val(b), 0),
+  };
+}
+
+export function ticketTotals(t: Tickets) {
+  const sold = t.buyers.reduce((a, b) => a + b.normal + b.held, 0);
+  const doorList = t.buyers.reduce((a, b) => a + b.door, 0);
+  const contingent = t.moves.filter((m) => m.from === 'venue').reduce((a, m) => a + m.count, 0) - t.moves.filter((m) => m.to === 'venue').reduce((a, m) => a + m.count, 0);
+  const money = sold * t.presale;
+  const share = bandShare(t.tiers, sold);
+  return {
+    sold,
+    doorList,
+    people: sold + doorList + (t.doorSold || 0),
+    contingent,
+    needed: sold - contingent, // tickets still missing (> 0) or spare (< 0), like the Excel: normal + deposited
+    money,
+    paid: t.buyers.filter((b) => b.paid).reduce((a, b) => a + (b.normal + b.held) * t.presale, 0),
+    cash: t.buyers.filter((b) => b.cash).reduce((a, b) => a + (b.normal + b.held) * t.presale, 0),
+    share,
+    venue: money - share,
+  };
 }
 
 export interface Cost {
@@ -258,7 +382,7 @@ export function normalize(d: any): Band {
   b.members = d.members ?? [];
   b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [] }));
   b.setlists = d.setlists ?? [];
-  b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) } }));
+  b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) } }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
   const e = emptyGear();
@@ -307,6 +431,7 @@ export function newGig(date: string): Gig {
     contacts: [],
     notes: '',
     money: newMoney(),
+    tickets: newTickets(),
   };
 }
 

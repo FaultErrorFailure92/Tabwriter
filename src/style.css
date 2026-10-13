@@ -1402,3 +1402,52 @@ label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 .fromRow .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 .fromRow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .fromRow select { width: 150px !important; }
+
+/* ---------- ticket presale ---------- */
+.gigSeg { margin: 0 0 12px; }
+.tkSummary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.tkTile { display: flex; flex-direction: column; gap: 1px; padding: 10px 12px; border-radius: 10px; background: var(--fill); min-width: 0; }
+.tkTile span { font-size: 11.5px; color: var(--label2); }
+.tkTile b { font: 700 19px var(--font-display); font-variant-numeric: tabular-nums; }
+.tkTile i { font-style: normal; font-size: 11px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tkTile.warn b, .tkTile.warn i { color: var(--orange); }
+.tkTile.accent { background: var(--accent-soft); }
+.tkTile.accent b { color: var(--accent); }
+.tkProgress { position: relative; height: 6px; border-radius: 3px; background: var(--fill2); margin: 10px 0 4px; overflow: hidden; }
+.tkProgress div { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, #30d158 45%, transparent); border-radius: 3px; }
+.tkProgress div.cash { background: #30d158; }
+.tkRow { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--label2); }
+.tkRow .pInput.num { width: 70px; }
+.tkRow .unit { color: var(--label3); }
+.tkRow .tb { margin-left: auto; }
+.tkSellers .row { display: grid; grid-template-columns: 1.4fr 60px 60px 64px 1.2fr; gap: 6px; align-items: center; padding: 5px 8px; border-radius: 7px; font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.tkSellers .row.head { font-size: 11px; color: var(--label2); cursor: default; }
+.tkSellers .row:not(.head):hover { background: var(--fill); }
+.tkSellers .row.on { background: var(--accent-soft); }
+.tkSellers .nm { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tkSellers .neg { color: var(--red); font-weight: 600; }
+.tkSellers i { font-style: normal; color: var(--label3); font-size: 11px; }
+.tkSellers .money { position: relative; padding-bottom: 5px; }
+.tkSellers .money i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #30d158 var(--c), color-mix(in srgb, #30d158 45%, transparent) var(--c) var(--p), var(--fill2) var(--p)); }
+.moveRow { display: grid; grid-template-columns: 128px 64px 1fr 14px 1fr 22px; gap: 6px; align-items: center; margin-bottom: 4px; }
+.moveRow .arrow { color: var(--label3); text-align: center; }
+.moveRow:not(:hover) .tb { visibility: hidden; }
+.tkBuyers { margin-top: 18px; }
+.tkBuyers .secTop .btnGroup { align-items: center; }
+.tkBuyers .search { width: 160px; }
+.tkBuyers .btn { display: inline-flex; align-items: center; gap: 5px; }
+.buyerRow { display: grid; grid-template-columns: 1.6fr 1fr 52px 52px 52px 80px 84px 22px; gap: 6px; align-items: center; padding: 3px 0; }
+.buyerRow .note { grid-column: 1 / -2; font-size: 12px; color: var(--label2); padding-top: 0; padding-bottom: 2px; }
+.buyerRow:not(:hover) .note:placeholder-shown:not(:focus) { display: none; }
+.buyerRow + .buyerRow { box-shadow: inset 0 0.5px 0 var(--sep); }
+.buyerRow.head { font-size: 11px; color: var(--label2); padding-bottom: 4px; }
+.buyerRow .pInput { box-shadow: none; background: none; }
+.buyerRow .pInput:hover { background: var(--fill); }
+.buyerRow .pInput:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent-line); }
+.buyerRow .amt { text-align: right; font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--label2); }
+.buyerRow .status { display: flex; gap: 3px; justify-content: flex-end; }
+.buyerRow .stat { width: 24px; height: 22px; border: 0; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: var(--fill); color: var(--label3); cursor: pointer; }
+.buyerRow .stat.on { background: color-mix(in srgb, #30d158 22%, transparent); color: #30a14e; }
+.buyerRow .stat:disabled { opacity: .3; cursor: default; }
+.buyerRow:not(:hover) .tb { visibility: hidden; }
+@media (max-width: 1200px) { .tkSummary { grid-template-columns: repeat(3, 1fr); } }

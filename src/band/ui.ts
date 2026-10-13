@@ -5,6 +5,7 @@ import { dbGet, dbPut } from '../library';
 import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
 import { renderStage, printRider } from './stage';
+import { renderTickets } from './tickets';
 import { renderIdeas, collectAudio, restoreAudio } from './ideas';
 import type { Clip } from '../editor';
 import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
@@ -743,7 +744,7 @@ function renderGigs(main: HTMLElement) {
     if (!gigs.length) return;
     list.appendChild(el('div', 'bandGroup', esc(title)));
     for (const g of gigs) {
-      const r = el('div', 'bandItem' + (g.id === selGig ? ' on' : '') + (g.date && g.date < now ? ' past' : ''), `<span class="t">${esc(g.title || g.venue || t('Gig'))}${moneyBadge(g)}</span><span class="s">${esc(fmtDate(g.date))}${g.venue && g.title ? ' · ' + esc(g.venue) : ''}</span>`);
+      const r = el('div', 'bandItem' + (g.id === selGig ? ' on' : '') + (g.date && g.date < now ? ' past' : ''), `<span class="t">${esc(g.title || g.venue || t('Gig'))}${moneyBadge(g)}</span><span class="s">${esc(fmtDate(g.date))}${g.venue && g.title ? ' · ' + esc(g.venue) : ''}${presaleInfo(g)}</span>`);
       r.onclick = () => {
         selGig = g.id;
         render();
@@ -771,6 +772,11 @@ function renderGigs(main: HTMLElement) {
   main.appendChild(split);
 }
 
+function presaleInfo(g: Gig): string {
+  const n = g.tickets.buyers.reduce((a, b) => a + b.normal + b.held, 0);
+  return n ? ` · ${esc(t('{n} VVK', { n }))}` : '';
+}
+
 /** small marker in the gig list: unpaid fee */
 function moneyBadge(g: Gig): string {
   if (!g.money.fee) return '';
@@ -791,6 +797,8 @@ function field(parent: HTMLElement, label: string, ctl: HTMLElement) {
   r.appendChild(ctl);
   parent.appendChild(r);
 }
+
+let gigSub: 'plan' | 'tickets' = 'plan';
 
 function gigDetail(g: Gig): HTMLElement {
   const d = el('div', 'bandDetail');
@@ -820,6 +828,22 @@ function gigDetail(g: Gig): HTMLElement {
     render();
   }));
   d.appendChild(top);
+
+  // planning or ticket presale
+  const seg = el('div', 'seg stageSeg gigSeg');
+  for (const [k, l] of [['plan', t('Planung')], ['tickets', t('Vorverkauf')]] as const) {
+    const btn = el('button', gigSub === k ? 'on' : '', esc(l));
+    btn.onclick = () => {
+      gigSub = k;
+      render();
+    };
+    seg.appendChild(btn);
+  }
+  d.appendChild(seg);
+  if (gigSub === 'tickets') {
+    renderTickets(d, band, g, render, (m) => host.confirm(m));
+    return d;
+  }
 
   const cols = el('div', 'gigCols');
   const left = el('div');
