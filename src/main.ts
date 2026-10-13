@@ -819,9 +819,14 @@ function refreshChrome() {
 // ---------------- boot skeleton ----------------
 function hideBoot() {
   const b = document.getElementById('boot');
-  if (!b || b.classList.contains('out')) return;
-  b.classList.add('out');
-  setTimeout(() => b.remove(), 300);
+  if (!b || b.classList.contains('out') || b.dataset.leaving) return;
+  b.dataset.leaving = '1';
+  // let the light come on before the stage fades out (about 1.2 s after start)
+  const wait = Math.max(0, 1200 - performance.now());
+  setTimeout(() => {
+    b.classList.add('out');
+    setTimeout(() => b.remove(), 550);
+  }, wait);
 }
 setTimeout(hideBoot, 8000); // fallback
 
