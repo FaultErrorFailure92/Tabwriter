@@ -6,7 +6,7 @@ The song editor inside Stagecraft is **Tabwriter**: a modern, keyboard-driven ta
 
 Runs as a native macOS app (Tauri) and as a web app (works offline, installable as a PWA). The web app also runs on Windows and Linux.
 
-**Web:** landing page at [faulterrorfailure92.github.io/tabwriter](https://faulterrorfailure92.github.io/tabwriter/), the app at [/app/](https://faulterrorfailure92.github.io/tabwriter/app/).
+**Web:** landing page at [faulterrorfailure92.github.io/Tabwriter](https://faulterrorfailure92.github.io/Tabwriter/), the app at [/app/](https://faulterrorfailure92.github.io/Tabwriter/app/).
 
 ## The workflow
 
