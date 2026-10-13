@@ -1393,3 +1393,5 @@ label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 .fbSvg .fbHit { fill: transparent; cursor: pointer; }
 .fbSvg .fbHit:hover { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
 #fbControls select { width: auto !important; max-width: 160px; }
+#lcdVoiceCell { cursor: pointer; }
+#lcdVoiceCell.changed .big { color: var(--accent); }

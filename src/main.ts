@@ -700,8 +700,21 @@ function ensureVisible(top: number, bottom: number) {
 // ---------------- status bar ----------------
 const DUR_NAMES: Record<number, string> = { 1: '1/1', 2: '1/2', 4: '1/4', 8: '1/8', 16: '1/16', 32: '1/32', 64: '1/64' };
 
+function toggleVoice() {
+  if (editor.isDrums) {
+    flash(t('Drums haben nur eine Stimme'));
+    return;
+  }
+  editor.setVoice(editor.vi ? 0 : 1);
+  flash(editor.vi ? t('Stimme 2 (Hälse nach unten) – Q wechselt zurück') : t('Stimme 1'));
+  moved();
+  updateCursor(true);
+}
+
 function updateStatus() {
   const c = editor.cursor;
+  $('lcdVoice').textContent = String(editor.vi + 1);
+  $('lcdVoiceCell').classList.toggle('changed', editor.vi > 0);
   const b = editor.beat;
   $('lcdPos').textContent = `${c.bar + 1} · ${c.beat + 1}`;
   let d = DUR_NAMES[b.duration] ?? String(b.duration);
@@ -2646,6 +2659,7 @@ $('loopBtn').onclick = () => {
   $('loopBtn').blur();
   toggleLoop();
 };
+$('lcdVoiceCell').onclick = () => toggleVoice();
 $('metroBtn').onclick = () => {
   $('metroBtn').blur();
   toggleMetronome();
@@ -3000,6 +3014,7 @@ window.addEventListener('keydown', async (e) => {
     case 'b': e.shiftKey ? editor.deleteBar() : editor.insertBar(); break;
     case 'w': e.shiftKey ? editor.toggleRepeatEnd() : editor.toggleRepeatStart(); break;
     case 'm': e.preventDefault(); void editTimeSig(); break;
+    case 'q': e.preventDefault(); toggleVoice(); break;
     case 'c': e.preventDefault(); openEntry('chord'); break;
     default: handled = false;
   }

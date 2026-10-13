@@ -13,7 +13,7 @@ const DURATIONS = [1, 2, 4, 8, 16, 32, 64];
 
 export interface Pos { bar: number; beat: number }
 
-export interface Clip { json: string; track: number; start: Pos; end: Pos; fullBars: boolean; drums: boolean; strings: number }
+export interface Clip { json: string; track: number; start: Pos; end: Pos; fullBars: boolean; drums: boolean; strings: number; voice?: number }
 
 export interface Cursor {
   track: number;
@@ -41,6 +41,7 @@ export class Editor {
   }
 
   setScore(score: Score, arr: A.Arrangement | null = null) {
+    this.vi = 0;
     this.score = rebuild(score, this.settings);
     this.arr = arr;
     if (arr) A.rememberHashes(JSON.parse(snapshot(this.score)), arr, this.sync);
@@ -59,7 +60,32 @@ export class Editor {
   get stringCount() { return this.staff.tuning.length; }
   get rowCount() { return this.isDrums ? DRUM_LANES.length : this.stringCount; }
   get bar(): Bar { return this.staff.bars[this.cursor.bar]; }
-  get voice() { return this.bar.voices[0]; }
+  /** voice being edited (0 = voice 1, 1 = voice 2) */
+  vi = 0;
+  get voice() { return this.bar.voices[this.vi]; }
+
+  /** make sure every bar of the current staff has the edited voice */
+  private ensureVoice() {
+    if (this.vi === 0) return;
+    for (const bar of this.staff.bars) {
+      while (bar.voices.length <= this.vi) {
+        const v = new m.Voice();
+        bar.addVoice(v);
+        const nb = newBeat(this.duration, true);
+        v.addBeat(nb);
+      }
+      const v = bar.voices[this.vi];
+      if (!v.beats.length) v.addBeat(newBeat(this.duration, true));
+    }
+  }
+
+  setVoice(i: number) {
+    if (this.isDrums) i = 0;
+    this.vi = Math.max(0, Math.min(1, i));
+    this.selAnchor = null;
+    this.ensureVoice();
+    this.clamp();
+  }
   get beat(): Beat { return this.voice.beats[this.cursor.beat]; }
   get masterBar() { return this.score.masterBars[this.cursor.bar]; }
   /** alphaTab string number (1 = lowest) for current row */
@@ -79,13 +105,15 @@ export class Editor {
   }
 
   barFill(): { used: number; total: number } {
-    return { used: voiceTicks(this.bar), total: barTicks(this.masterBar) };
+    return { used: this.voice.beats.reduce((s, b) => s + beatTicks(b), 0), total: barTicks(this.masterBar) };
   }
 
   clamp() {
     const c = this.cursor;
     c.track = Math.max(0, Math.min(c.track, this.score.tracks.length - 1));
     c.bar = Math.max(0, Math.min(c.bar, this.score.masterBars.length - 1));
+    if (this.isDrums) this.vi = 0;
+    this.ensureVoice();
     if (this.voice.beats.length === 0) this.voice.addBeat(newBeat(this.duration, true));
     c.beat = Math.max(0, Math.min(c.beat, this.voice.beats.length - 1));
     c.row = Math.max(0, Math.min(c.row, this.rowCount - 1));
@@ -401,7 +429,7 @@ export class Editor {
     let b = this.cursor.bar;
     let guard = 0;
     while (b < st.bars.length && guard++ < 2000) {
-      const voice = st.bars[b].voices[0];
+      const voice = st.bars[b].voices[this.vi];
       const total = barTicks(this.score.masterBars[b]);
       let acc = 0;
       let cut = -1;
@@ -417,7 +445,7 @@ export class Editor {
       if (!voice.beats.length) voice.addBeat(newBeat(this.duration, true));
       if (!moved.length) break;
       if (b + 1 >= this.score.masterBars.length) this.appendBar();
-      const next = st.bars[b + 1].voices[0];
+      const next = st.bars[b + 1].voices[this.vi];
       if (next.beats.every((x) => x.isEmpty)) next.beats.splice(0);
       next.beats.unshift(...moved);
       for (const m of moved) m.voice = next;
@@ -425,7 +453,7 @@ export class Editor {
     }
     // keep the cursor on the beat it was on
     for (let bi = 0; bi < st.bars.length; bi++) {
-      const k = st.bars[bi].voices[0].beats.indexOf(cur);
+      const k = st.bars[bi].voices[this.vi].beats.indexOf(cur);
       if (k >= 0) {
         this.cursor.bar = bi;
         this.cursor.beat = k;
@@ -446,7 +474,7 @@ export class Editor {
       const beats: Beat[] = [];
       const { start, end } = this.selection();
       for (let b = start.bar; b <= end.bar; b++) {
-        const bs = this.staff.bars[b].voices[0].beats;
+        const bs = this.staff.bars[b].voices[this.vi].beats;
         const from = b === start.bar ? start.beat : 0;
         const to = b === end.bar ? end.beat : bs.length - 1;
         beats.push(...bs.slice(from, to + 1));
@@ -809,7 +837,7 @@ export class Editor {
     const { start, end } = this.selection();
     for (let b = start.bar; b <= end.bar; b++) {
       const bar = this.staff.bars[b];
-      const n = bar.voices[0].beats.length;
+      const n = bar.voices[this.vi].beats.length;
       const from = b === start.bar ? start.beat : 0;
       const to = b === end.bar ? end.beat : n - 1;
       fn(bar, Math.min(from, n - 1), Math.min(to, n - 1));
@@ -842,12 +870,12 @@ export class Editor {
 
   copy(): string {
     const { start, end } = this.selection();
-    const lastOfEnd = this.staff.bars[end.bar].voices[0].beats.length - 1;
+    const lastOfEnd = this.staff.bars[end.bar].voices[this.vi].beats.length - 1;
     // whole bars only if the selection covers complete, filled bars;
     // everything else (e.g. 2 notes in a half-empty bar) is copied as single beats
     let barsFilled = true;
     for (let b = start.bar; b <= end.bar; b++) {
-      if (voiceTicks(this.staff.bars[b]) < barTicks(this.score.masterBars[b])) barsFilled = false;
+      if (this.staff.bars[b].voices[this.vi].beats.reduce((s, x) => s + beatTicks(x), 0) < barTicks(this.score.masterBars[b])) barsFilled = false;
     }
     const fullBars = this.hasSelection && start.beat === 0 && end.beat >= lastOfEnd && barsFilled;
     this.clip = {
@@ -856,6 +884,7 @@ export class Editor {
       start, end, fullBars,
       drums: this.isDrums,
       strings: this.stringCount,
+      voice: this.vi,
     };
     const bars = end.bar - start.bar + 1;
     if (fullBars) return bars === 1 ? t('1 Takt kopiert') : t('{n} Takte kopiert', { n: bars });
@@ -869,7 +898,7 @@ export class Editor {
     this.begin();
     const { start } = this.selection();
     this.forSelection((bar, from, to) => {
-      const v = bar.voices[0];
+      const v = bar.voices[this.vi];
       v.beats.splice(from, to - from + 1);
       if (v.beats.length === 0) v.addBeat(newBeat(this.duration, true));
     });
@@ -896,7 +925,7 @@ export class Editor {
     const shift = this.stringCount - c.strings;
     const out: Beat[][] = [];
     for (let b = c.start.bar; b <= c.end.bar; b++) {
-      const beats = st.bars[b].voices[0].beats;
+      const beats = st.bars[b].voices[c.voice ?? 0].beats;
       const from = b === c.start.bar ? c.start.beat : 0;
       const to = b === c.end.bar ? c.end.beat : beats.length - 1;
       const list: Beat[] = [];
@@ -935,7 +964,7 @@ export class Editor {
       for (let k = 0; k < parts.length; k++) {
         const bi = startBar + k;
         if (bi >= this.score.masterBars.length) this.appendBar();
-        const v = st.bars[bi].voices[0];
+        const v = st.bars[bi].voices[this.vi];
         v.beats.splice(0);
         for (const b of parts[k]) v.addBeat(b);
         if (!v.beats.length) v.addBeat(newBeat(this.duration, true));
@@ -1201,13 +1230,13 @@ export class Editor {
       if (beat < 0) {
         bar--;
         if (bar < 0) return false;
-        beat = bars[bar].voices[0].beats.length - 1;
-      } else if (beat >= bars[bar].voices[0].beats.length) {
+        beat = bars[bar].voices[this.vi].beats.length - 1;
+      } else if (beat >= bars[bar].voices[this.vi].beats.length) {
         bar++;
         beat = 0;
         if (bar >= bars.length) return false;
       }
-      if (bars[bar].voices[0].beats[beat]?.notes.length) {
+      if (bars[bar].voices[this.vi].beats[beat]?.notes.length) {
         this.cursor.bar = bar;
         this.cursor.beat = beat;
         return true;

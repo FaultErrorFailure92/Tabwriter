@@ -797,4 +797,9 @@ export const EN: Record<string, string> = {
   "MIDI-Eingabe an – noch kein Gerät gefunden": "MIDI input on – no device found yet",
   "MIDI nicht verfügbar: {x}": "MIDI not available: {x}",
   "MIDI-Eingabe: Keyboard/MIDI-Gitarre spielt Noten in den aktuellen Schlag": "MIDI input: keyboard/MIDI guitar plays notes into the current beat",
+  "Drums haben nur eine Stimme": "Drums have one voice only",
+  "Stimme 2 (Hälse nach unten) – Q wechselt zurück": "Voice 2 (stems down) – Q switches back",
+  "Stimme 1": "Voice 1",
+  "Stimme 1/2 wechseln (Q)": "Switch voice 1/2 (Q)",
+  "Stimme": "Voice",
 };
