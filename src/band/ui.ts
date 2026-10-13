@@ -383,6 +383,12 @@ function setlistDetail(l: Setlist): HTMLElement {
   });
   if (!l.items.length) items.appendChild(el('div', 'bandEmpty small', esc(t('Füge unten Songs oder Pausen hinzu.'))));
   d.appendChild(items);
+  dragRows(items, (from, to) => {
+    const [it] = l.items.splice(from, 1);
+    l.items.splice(to, 0, it);
+    save();
+    render();
+  });
 
   const add = el('div', 'setAdd');
   const used = new Set(l.items.map((it) => (it.type === 'song' ? it.song : '')));
@@ -403,6 +409,48 @@ function setlistDetail(l: Setlist): HTMLElement {
   if (!band.songs.length) add.appendChild(el('span', 'hint', esc(t('Songs legst du unter „Songs“ an.'))));
   d.appendChild(add);
   return d;
+}
+
+/** reorder rows by dragging (not from inputs or buttons) */
+function dragRows(box: HTMLElement, done: (from: number, to: number) => void) {
+  box.addEventListener('mousedown', (e) => {
+    const t0 = e.target as HTMLElement;
+    if (t0.closest('input, button, select, textarea')) return;
+    const row = t0.closest('.setRow') as HTMLElement | null;
+    if (!row) return;
+    const rows = Array.from(box.querySelectorAll<HTMLElement>('.setRow'));
+    const from = rows.indexOf(row);
+    const y0 = e.clientY;
+    let dragging = false;
+    let gap = from;
+    e.preventDefault();
+    const clear = () => rows.forEach((r) => r.classList.remove('dropT', 'dropB', 'dragging'));
+    const mv = (m: MouseEvent) => {
+      if (!dragging && Math.abs(m.clientY - y0) < 4) return;
+      dragging = true;
+      document.body.classList.add('arDragging');
+      clear();
+      row.classList.add('dragging');
+      gap = 0;
+      rows.forEach((r) => {
+        const rc = r.getBoundingClientRect();
+        if (m.clientY > rc.top + rc.height / 2) gap++;
+      });
+      if (gap < rows.length) rows[gap].classList.add('dropT');
+      else rows[rows.length - 1].classList.add('dropB');
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', mv);
+      window.removeEventListener('mouseup', up);
+      document.body.classList.remove('arDragging');
+      clear();
+      if (!dragging) return;
+      const to = gap > from ? gap - 1 : gap;
+      if (to !== from) done(from, to);
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+  });
 }
 
 // ---------------- gigs ----------------

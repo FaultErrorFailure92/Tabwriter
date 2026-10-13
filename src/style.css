@@ -1207,3 +1207,9 @@ textarea.pInput.notes { min-height: 90px; resize: vertical; font: 13px var(--fon
 .setRow .name.link { cursor: pointer; }
 .setRow .name.link:hover { color: var(--accent); text-decoration: underline; }
 #linkPop { position: fixed; z-index: 60; max-width: 320px; }
+
+.setRow { cursor: grab; position: relative; }
+.setRow.dragging { opacity: .35; }
+.setRow.dropT::before, .setRow.dropB::after { content: ''; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent); }
+.setRow.dropT::before { top: -2px; }
+.setRow.dropB::after { bottom: -2px; }
