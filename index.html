@@ -130,6 +130,7 @@
       <hr />
       <button data-act="transpose"><i data-icon="transpose"></i><span>Transponieren …</span><kbd>⌘T</kbd></button>
       <button data-act="meta"><i data-icon="textInfo"></i><span>Song-Infos …</span></button>
+      <button data-act="versions"><i data-icon="restore"></i><span>Versionen …</span><kbd>⌥⌘S</kbd></button>
       <button data-act="prefs"><i data-icon="gear"></i><span>Einstellungen …</span><kbd>⌘,</kbd></button>
       <hr />
       <button data-act="help"><i data-icon="keyboard"></i><span>Tastenkürzel</span><kbd>?</kbd></button>
@@ -409,6 +410,19 @@
           <button type="submit" class="btn primary">Transponieren</button>
         </div>
       </form>
+    </div>
+
+    <div id="verDlg" class="overlay hidden">
+      <div class="card versions">
+        <div class="row">
+          <h2>Versionen</h2>
+          <span class="spacer"></span>
+          <button type="button" class="btn primary" id="verSave"><i data-icon="plus" data-size="12"></i><span>Aktuellen Stand sichern …</span></button>
+        </div>
+        <div id="verList"></div>
+        <p class="hint">Versionen werden in der .tabw-Datei gespeichert. Wiederherstellen lässt sich mit ⌘Z rückgängig machen.</p>
+        <div class="row"><span class="spacer"></span><button type="button" class="btn" id="verClose">Fertig</button></div>
+      </div>
     </div>
 
     <div id="progressDlg" class="overlay hidden">

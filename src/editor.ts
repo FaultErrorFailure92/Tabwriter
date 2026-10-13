@@ -1179,6 +1179,18 @@ export class Editor {
     return null;
   }
 
+  /** replace the whole song (undoable), e.g. restoring a version */
+  replaceAll(score: Score, arr: A.Arrangement | null) {
+    this.begin();
+    this.score = rebuild(score, this.settings);
+    this.arr = arr ? JSON.parse(JSON.stringify(arr)) : null;
+    if (this.arr) A.rememberHashes(JSON.parse(snapshot(this.score)), this.arr, this.sync);
+    this.selAnchor = null;
+    this.dirty = true;
+    this.clamp();
+    this.onChange(true);
+  }
+
   mutate(fn: (s: Score) => void, structural = true) {
     this.begin();
     fn(this.score);

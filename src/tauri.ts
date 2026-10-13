@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead';
+  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();
@@ -64,6 +64,7 @@ export async function setupMenu(run: (a: Action) => void) {
       item('band', t('Band …'), 'CmdOrCtrl+Shift+G'),
       sep(),
       item('save', t('Speichern'), 'CmdOrCtrl+S'),
+      item('versions', t('Versionen …'), 'CmdOrCtrl+Alt+S'),
       item('saveas', t('Speichern unter …'), 'CmdOrCtrl+Shift+S'),
       Promise.resolve(exportMenu),
       sep(),

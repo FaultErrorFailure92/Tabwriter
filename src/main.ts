@@ -11,6 +11,7 @@ import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, t
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
 import { reaperZip } from './reaper';
+import { type Version, diffScores } from './versions';
 import { openPrintDialog } from './print';
 import { detectChord, beatMidi, chordOf, lyricOf } from './chords';
 type Arrangement = A.Arrangement;
@@ -1731,7 +1732,7 @@ function modal(id: string, onClose?: () => void) {
 }
 
 function anyModalOpen() {
-  return ['prompt', 'meta', 'prefsDlg', 'aboutDlg', 'onboard', 'progressDlg', 'transDlg'].some((id) => !$(id).classList.contains('hidden'));
+  return ['prompt', 'meta', 'prefsDlg', 'aboutDlg', 'onboard', 'progressDlg', 'transDlg', 'verDlg'].some((id) => !$(id).classList.contains('hidden'));
 }
 
 function toggleHelp(show?: boolean) {
@@ -1740,9 +1741,12 @@ function toggleHelp(show?: boolean) {
 $('help').onclick = () => toggleHelp(false);
 
 // ---------------- files ----------------
-function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: string; format?: Format; dirty?: boolean; arr?: Arrangement | null } = {}) {
+let versions: Version[] = [];
+
+function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: string; format?: Format; dirty?: boolean; arr?: Arrangement | null; versions?: Version[] } = {}) {
   stop();
   editor.setScore(score, opts.arr ?? null);
+  versions = opts.versions ?? [];
   editor.dirty = !!opts.dirty;
   fileName = name.replace(/\.[^.]+$/, '');
   format = opts.format ?? 'gp5';
@@ -1777,10 +1781,10 @@ function loadBytes(name: string, bytes: Uint8Array, path?: string): boolean {
 }
 
 // own format: JSON with the alphaTab score and the arrangement
-interface TabwFile { app: 'tabwriter'; version: number; score: unknown; arrangement: Arrangement | null }
+interface TabwFile { app: 'tabwriter'; version: number; score: unknown; arrangement: Arrangement | null; versions?: Version[] }
 
 function tabwBytes(): Uint8Array {
-  const d: TabwFile = { app: 'tabwriter', version: 1, score: JSON.parse(snapshot(editor.score)), arrangement: editor.arr };
+  const d: TabwFile = { app: 'tabwriter', version: 1, score: JSON.parse(snapshot(editor.score)), arrangement: editor.arr, versions };
   return new TextEncoder().encode(JSON.stringify(d));
 }
 
@@ -1789,6 +1793,7 @@ function loadTabw(name: string, bytes: Uint8Array, path?: string): boolean {
   if (d.app !== 'tabwriter' || !d.score) throw new Error(t('Keine Tabwriter-Datei'));
   const score = restore(JSON.stringify(d.score), api.settings);
   loadScore(score, name, { path, format: 'tabw', arr: d.arrangement ?? null });
+  versions = d.versions ?? [];
   void clearAutosave();
   flash(t('{x} geöffnet', { x: name }));
   void addRecent({ title: score.title || fileName, artist: score.artist, fileName: name, path, tracks: score.tracks.map((tr) => tr.name) }, bytes);
@@ -1828,7 +1833,7 @@ function songBytes(fmt: Format): Uint8Array {
 async function saveSong(saveAs = false) {
   try {
     // with an arrangement the song is saved as .tabw (GP5/GP7 stay available as export)
-    const fmt: Format = editor.arr ? 'tabw' : saveAs ? 'gp5' : format;
+    const fmt: Format = editor.arr || versions.length ? 'tabw' : saveAs ? 'gp5' : format;
     const type = fmt === 'tabw' ? TABW : fmt === 'gp' ? GP7 : GP5;
     const bytes = songBytes(fmt);
     const reuse = !saveAs && fmt === format;
@@ -1934,7 +1939,7 @@ async function openDemo() {
 
 // ---------------- autosave / recovery ----------------
 const AUTOSAVE_KEY = '__autosave';
-interface AutosaveData { json: string; arr?: Arrangement | null; fileName: string; path?: string; format: Format; time: number; title: string }
+interface AutosaveData { json: string; arr?: Arrangement | null; versions?: Version[]; fileName: string; path?: string; format: Format; time: number; title: string }
 let autosaveTimer = 0;
 
 function scheduleAutosave() {
@@ -1950,6 +1955,7 @@ async function writeAutosave() {
   const data: AutosaveData = {
     json: snapshot(editor.score),
     arr: editor.arr,
+    versions,
     fileName,
     path: typeof saveHandle === 'string' ? saveHandle : undefined,
     format,
@@ -1976,7 +1982,7 @@ async function showRecovery() {
   $('recRestore').onclick = () => {
     try {
       const score = restore(data.json, api.settings);
-      loadScore(score, data.fileName, { path: data.path, format: data.format, dirty: true, arr: data.arr ?? null });
+      loadScore(score, data.fileName, { path: data.path, format: data.format, dirty: true, arr: data.arr ?? null, versions: data.versions ?? [] });
       flash(t('Wiederhergestellt'));
     } catch (e) {
       console.error(e);
@@ -2183,6 +2189,81 @@ function openPrefs() {
 }
 
 // ---------------- transpose ----------------
+// ---------------- versions ----------------
+function openVersions() {
+  closePops();
+  const list = $('verList');
+  const fmtTime = (ms: number) => new Date(ms).toLocaleString(currentLang() === 'de' ? 'de-AT' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  let open = '';
+  const draw = () => {
+    list.innerHTML = '';
+    if (!versions.length) {
+      list.innerHTML = `<div class="sideEmpty">${escapeHtml(t('Noch keine Versionen. Sichere einen Stand, bevor du größere Änderungen machst.'))}</div>`;
+      return;
+    }
+    const cur = snapshot(editor.score);
+    [...versions].reverse().forEach((v) => {
+      const row = document.createElement('div');
+      row.className = 'verRow' + (open === v.id ? ' open' : '');
+      row.innerHTML = `<div class="verHead"><i>${icon('restore', 14)}</i><div class="verText"><b>${escapeHtml(v.comment || t('Ohne Kommentar'))}</b><span>${escapeHtml(fmtTime(v.time))}</span></div></div>`;
+      const tools = document.createElement('span');
+      tools.className = 'verTools';
+      const b = (label: string, fn: () => void, cls = 'btn') => {
+        const x = document.createElement('button');
+        x.className = cls;
+        x.textContent = label;
+        x.onclick = (e) => {
+          e.stopPropagation();
+          fn();
+        };
+        tools.appendChild(x);
+      };
+      b(open === v.id ? t('Zuklappen') : t('Vergleichen'), () => {
+        open = open === v.id ? '' : v.id;
+        draw();
+      });
+      b(t('Wiederherstellen'), async () => {
+        if (!(await confirmAsk(t('Stand „{x}“ wiederherstellen? (⌘Z macht es rückgängig)', { x: v.comment || fmtTime(v.time) })))) return;
+        editor.replaceAll(restore(v.score, api.settings), v.arr);
+        flash(t('Version wiederhergestellt'));
+        closeV();
+      });
+      b(t('Löschen'), async () => {
+        if (!(await confirmAsk(t('Version „{x}“ löschen?', { x: v.comment || fmtTime(v.time) })))) return;
+        versions = versions.filter((x) => x !== v);
+        editor.dirty = true;
+        scheduleAutosave();
+        draw();
+      }, 'btn danger');
+      row.querySelector('.verHead')!.appendChild(tools);
+      if (open === v.id) {
+        const diff = diffScores(v.score, cur);
+        const d = document.createElement('ul');
+        d.className = 'verDiff';
+        d.innerHTML = diff.length ? diff.map((x) => `<li>${escapeHtml(x)}</li>`).join('') : `<li>${escapeHtml(t('Keine Unterschiede zum aktuellen Stand'))}</li>`;
+        const cap = document.createElement('div');
+        cap.className = 'hint';
+        cap.textContent = t('Seit dieser Version geändert:');
+        row.append(cap, d);
+      }
+      list.appendChild(row);
+    });
+  };
+  const closeV = modal('verDlg');
+  $('verClose').onclick = closeV;
+  $('verSave').onclick = async () => {
+    const c = await ask(t('Was hat sich geändert? (z.B. „Bridge umgeschrieben“)'), '');
+    if (c === null) return;
+    versions.push({ id: `v${Date.now().toString(36)}`, time: Date.now(), comment: c.trim(), score: snapshot(editor.score), arr: editor.arr ? JSON.parse(JSON.stringify(editor.arr)) : null });
+    editor.dirty = true;
+    scheduleAutosave();
+    updateWindowTitle();
+    flash(t('Version gesichert – mit ⌘S in die .tabw-Datei schreiben'));
+    draw();
+  };
+  draw();
+}
+
 function openTranspose() {
   closePops();
   if (editor.isDrums) {
@@ -2521,6 +2602,7 @@ function run(a: Action) {
     case 'export-reaper': void exportReaper(); break;
     case 'print': void doPrint(); break;
     case 'meta': openMeta(); break;
+    case 'versions': openVersions(); break;
     case 'undo':
       if (inTextField()) document.execCommand('undo');
       else editor.undo();
@@ -2631,6 +2713,7 @@ window.addEventListener('keydown', async (e) => {
       p: 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
+    if ((lk === 's' || e.code === 'KeyS') && e.altKey && e.metaKey) { e.preventDefault(); run('versions'); return; }
     if (/^[1-5]$/.test(k) && !e.shiftKey && !e.altKey) { e.preventDefault(); openStep(STEPS[Number(k) - 1].tab); return; }
     if (lk === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); return; }
     if (lk === 'c') { e.preventDefault(); if (clipGuard()) doCopy(); return; }

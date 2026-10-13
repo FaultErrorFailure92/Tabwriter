@@ -1334,3 +1334,22 @@ textarea.pInput.notes.big { min-height: 180px; font: 14px/1.6 var(--font); }
 #lead { font-size: 15px; }
 body.rehearsing #left, body.rehearsing #right, body.rehearsing #overview { display: none !important; }
 body.rehearsing #lead { width: calc(100% - 32px); }
+
+/* ---------- versions ---------- */
+.card.versions { width: min(620px, calc(100vw - 40px)); max-height: 80vh; display: flex; flex-direction: column; gap: 10px; }
+.card.versions .row { display: flex; align-items: center; gap: 8px; }
+.card.versions h2 { margin: 0; }
+.card.versions .btn.primary { display: inline-flex; align-items: center; gap: 5px; }
+#verList { overflow: auto; min-height: 60px; border-radius: 10px; background: var(--fill); padding: 4px; }
+.verRow { padding: 8px 10px; border-radius: 8px; }
+.verRow + .verRow { box-shadow: inset 0 0.5px 0 var(--sep); }
+.verRow.open { background: var(--paper); box-shadow: var(--shadow-sm); }
+.verHead { display: flex; align-items: center; gap: 10px; }
+.verHead > i { display: flex; color: var(--label2); }
+.verText { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.verText b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.verText span { font-size: 11.5px; color: var(--label2); }
+.verTools { display: flex; gap: 4px; }
+.verRow:not(:hover):not(.open) .verTools .btn:not(:first-child) { display: none; }
+.verDiff { margin: 4px 0 2px 24px; padding-left: 14px; font-size: 12.5px; line-height: 1.6; }
+.verRow .hint { margin: 8px 0 0 24px; }
