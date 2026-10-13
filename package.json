@@ -8,7 +8,8 @@
     "tauri": "tauri",
     "preview": "vite preview",
     "release": "tauri build --config src-tauri/tauri.release.conf.json",
-    "test": "node tests/run.mjs"
+    "test": "node tests/run.mjs",
+    "build:pages": "tsc -p . && vite build --outDir dist/app --emptyOutDir && node -e \"require('fs').cpSync('landing','dist',{recursive:true})\""
   },
   "license": "MIT",
   "dependencies": {

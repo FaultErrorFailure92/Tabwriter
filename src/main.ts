@@ -949,7 +949,7 @@ function songDuration(): number {
   });
   return Math.round(((ticks + rep) / 960) * (60 / bpm));
 }
-void initBand({
+const bandReady = initBand({
   currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: currentFileKey() } : null),
   flash: (m) => flash(m),
   confirm: (m) => confirmAsk(m),
@@ -985,6 +985,10 @@ void initBand({
     }
     return false;
   },
+});
+// the home screen may have been drawn before the band data was loaded
+void bandReady.then(() => {
+  if (libraryOpen() && !bandOpen()) renderFlow();
 });
 $('bandBtn').onclick = () => {
   $('bandBtn').blur();

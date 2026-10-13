@@ -24,7 +24,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # landing page at the root, the app under /app/
+      - run: npm run build:pages
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
