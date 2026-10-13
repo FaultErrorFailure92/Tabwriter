@@ -102,6 +102,7 @@
         <div class="seg" role="group" aria-label="Ansicht">
           <button id="oneBtn" class="on" title="Eine Spur"><i data-icon="oneTrack"></i></button>
           <button id="viewBtn" title="Alle Spuren" data-key="⌘E"><i data-icon="allTracks"></i></button>
+          <button id="leadBtn" title="Lead Sheet: Akkorde und Text (Probe-Ansicht)" data-key="⇧⌘E"><i data-icon="leadSheet"></i></button>
         </div>
         <button id="bandBtn" class="tbtn" title="Band: Gigs, Setlists, Songs, Mitglieder" data-key="⇧⌘G"><i data-icon="people"></i></button>
         <button id="ovBtn" class="tbtn" title="Übersicht (Spuren × Takte)" data-key="⌘B"><i data-icon="barIcon"></i></button>
@@ -163,6 +164,7 @@
           <div id="at"></div>
           <div id="cursor"><div id="cursorRow"></div></div>
         </div>
+        <div id="lead" class="hidden"></div>
       </main>
 
       <aside id="right"></aside>
@@ -193,7 +195,7 @@
             <p><kbd>⌥←</kbd><kbd>⌥→</kbd> Takt</p>
             <p><kbd>⌘↑</kbd><kbd>⌘↓</kbd> Anfang / Ende</p>
             <p><kbd>Tab</kbd> nächste Spur</p>
-            <p><kbd>⌘E</kbd> alle Spuren / eine Spur</p>
+            <p><kbd>⌘E</kbd> alle Spuren / eine Spur · <kbd>⇧⌘E</kbd> Lead Sheet</p>
             <p><kbd>⌘I</kbd> Spur-Einstellungen</p>
             <p><kbd>⇧⌘L</kbd> Bibliothek · <kbd>⌘B</kbd> Übersicht</p>
             <p><kbd>⌘+</kbd><kbd>⌘-</kbd> Zoom</p>
@@ -212,6 +214,7 @@
             <p><kbd>I</kbd> Schlag einfügen</p>
             <p><kbd>⇧↑</kbd><kbd>⇧↓</kbd> Bund ±1</p>
             <p>Drums: <kbd>X</kbd> / <kbd>↵</kbd> Schlag setzen</p>
+            <p><kbd>C</kbd> Akkord · <kbd>⇧L</kbd> Liedtext (<kbd>Leertaste</kbd> weiter)</p>
             <h3>Effekte</h3>
             <p><kbd>L</kbd> Haltebogen · <kbd>H</kbd> Hammer/Pull</p>
             <p><kbd>S</kbd> Slide · <kbd>U</kbd> Bend · <kbd>V</kbd> Vibrato</p>

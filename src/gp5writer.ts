@@ -155,11 +155,17 @@ export function writeGp5(score: Score): Uint8Array {
   w.i32(notice.length);
   for (const l of notice) w.intByteSizeString(l);
 
-  // lyrics (none)
-  w.i32(0);
+  // lyrics: first track that has some
+  let lyr: { start: number; text: string } | null = null;
+  let lyrTrack = -1;
+  for (let i = 0; i < tracks.length && !lyr; i++) {
+    lyr = lyricsText(tracks[i]);
+    if (lyr) lyrTrack = i;
+  }
+  w.i32(lyr ? lyrTrack + 1 : 0);
   for (let i = 0; i < 5; i++) {
-    w.i32(1);
-    w.intSizeString('');
+    w.i32(i === 0 && lyr ? lyr.start + 1 : 1);
+    w.intSizeString(i === 0 && lyr ? lyr.text : '');
   }
 
   // page setup
@@ -444,6 +450,8 @@ function writeBeat(w: Writer, t: Track, b: Beat, graces: Map<number, GraceInfo>,
 
   let flags = 0;
   if (b.dots > 0) flags |= 0x01;
+  const chord = b.chordId ? st.getChord(b.chordId) : null;
+  if (chord?.name) flags |= 0x02;
   if (b.text) flags |= 0x04;
   if (hasEffects) flags |= 0x08;
   if (tempo !== null) flags |= 0x10;
@@ -456,6 +464,7 @@ function writeBeat(w: Writer, t: Track, b: Beat, graces: Map<number, GraceInfo>,
   if (flags & 0x40) w.u8(isEmpty ? 0 : 2);
   w.i8(durationValue(b.duration as number));
   if (flags & 0x20) w.i32(b.tupletNumerator);
+  if (flags & 0x02) writeChord(w, chord!);
   if (flags & 0x04) w.intByteSizeString(b.text ?? '');
   if (flags & 0x08) {
     let f1 = 0;
@@ -499,6 +508,56 @@ function writeBeat(w: Writer, t: Track, b: Beat, graces: Map<number, GraceInfo>,
   for (const s of slots) writeNote(w, t, s.note, perc, graces.get(s.note.string));
 
   w.i16(0); // beat flags2 (beaming etc.)
+}
+
+/** GP5 chord diagram block (106 bytes, "new format") */
+function writeChord(w: Writer, c: alphaTab.model.Chord) {
+  w.u8(1); // new format
+  w.u8(1); // sharp
+  w.zeros(3);
+  w.u8(0); // root
+  w.u8(0); // type
+  w.u8(0); // extension
+  w.i32(0); // bass
+  w.i32(0); // tonality
+  w.u8(0); // add
+  w.byteSizeString(c.name, 20);
+  w.zeros(2);
+  w.u8(0); // fifth
+  w.u8(0); // ninth
+  w.u8(0); // eleventh
+  w.i32(c.strings.length ? c.firstFret : 0);
+  for (let i = 0; i < 7; i++) w.i32(i < c.strings.length ? c.strings[i] : -1);
+  w.u8(0); // barres
+  w.zeros(5 + 5 + 5); // barre frets / starts / ends
+  w.zeros(7); // omissions
+  w.zeros(1);
+  w.zeros(7); // fingering
+  w.u8(0); // show fingering
+}
+
+/** lyrics of one track in GP syntax: one chunk per note beat, "_" = empty, "Hal-lo" = two syllables */
+function lyricsText(t: Track): { start: number; text: string } | null {
+  const bars = t.staves[0]?.bars ?? [];
+  let start = -1;
+  const chunks: string[] = [];
+  let lastReal = -1;
+  for (let bi = 0; bi < bars.length; bi++) {
+    for (const b of bars[bi].voices[0]?.beats ?? []) {
+      if (b.isEmpty || b.isRest || !b.notes.length) continue;
+      const ly = (b.lyrics?.[0] ?? '').trim();
+      if (start < 0) {
+        if (!ly && !bars[bi].voices[0].beats.some((x) => x.lyrics?.[0]?.trim())) continue;
+        start = bi;
+      }
+      chunks.push(ly ? ly.replace(/\s+/g, '+') : '_');
+      if (ly) lastReal = chunks.length;
+    }
+  }
+  if (start < 0 || lastReal < 0) return null;
+  let text = '';
+  for (const c of chunks.slice(0, lastReal)) text += text && !text.endsWith('-') ? ' ' + c : c;
+  return { start, text };
 }
 
 function writeTempoChange(w: Writer, tempo: number) {

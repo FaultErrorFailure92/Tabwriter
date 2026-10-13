@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo' | 'band';
+  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();
@@ -92,6 +92,7 @@ export async function setupMenu(run: (a: Action) => void) {
     items: await Promise.all([
       item('sidebar', t('Spuren ein-/ausblenden'), 'Ctrl+CmdOrCtrl+S'),
       item('multi', t('Alle Spuren / eine Spur'), 'CmdOrCtrl+E'),
+      item('lead', t('Lead Sheet'), 'CmdOrCtrl+Shift+E'),
       item('panel', t('Spur-Einstellungen'), 'CmdOrCtrl+I'),
       item('overview', t('Übersicht'), 'CmdOrCtrl+B'),
       sep(),

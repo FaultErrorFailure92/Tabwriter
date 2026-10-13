@@ -521,4 +521,13 @@ export const EN: Record<string, string> = {
   "Aktuelle Band-Daten durch „{x}“ ersetzen?": "Replace current band data with \"{x}\"?",
   "Keine Stagecraft-Datei": "Not a Stagecraft file",
   "Band": "Band",
+
+  // chords, lyrics, lead sheet
+  "Lead Sheet": "Lead sheet",
+  "Lead Sheet: Akkorde und Text (Probe-Ansicht)": "Lead sheet: chords and lyrics (rehearsal view)",
+  "Akkord: ↵ setzen · Tab nächster Schlag · leer = entfernen · Esc": "Chord: ↵ set · Tab next beat · empty = remove · Esc",
+  "Liedtext: Leertaste/Tab weiter · ⇧Tab zurück · Silbe mit - trennen · Esc": "Lyrics: Space/Tab next · ⇧Tab back · split syllables with - · Esc",
+  "z.B. Am7": "e.g. Am7",
+  "Silbe": "Syllable",
+  "Ende des Songs": "End of song",
 };

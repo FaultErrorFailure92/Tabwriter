@@ -9,6 +9,9 @@ import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV
 import * as A from './arrangement';
 import { initBand, openBand, closeBand, bandOpen } from './band/ui';
 import { barTicks } from './model';
+import { renderLeadSheet } from './leadsheet';
+import { openPrintDialog } from './print';
+import { detectChord, beatMidi, chordOf, lyricOf } from './chords';
 type Arrangement = A.Arrangement;
 import { listRecent, addRecent, removeRecent, cachedBytes, relTime, dbGet, dbPut, dbDelete, type RecentEntry } from './library';
 import { exportMidi } from './midi';
@@ -175,14 +178,168 @@ function renderDone(): boolean {
 
 function setMultiView(on: boolean) {
   multiView = on;
+  if (leadMode) setLeadMode(false);
   $('viewBtn').classList.toggle('on', on);
   $('oneBtn').classList.toggle('on', !on);
   render();
 }
 
+// ---------------- lead sheet ----------------
+let leadMode = false;
+function setLeadMode(on: boolean) {
+  leadMode = on;
+  closeEntry(false);
+  $('sheet').classList.toggle('hidden', on);
+  $('lead').classList.toggle('hidden', !on);
+  $('leadBtn').classList.toggle('on', on);
+  $('viewBtn').classList.toggle('on', !on && multiView);
+  $('oneBtn').classList.toggle('on', !on && !multiView);
+  if (on) refreshLead(true);
+  else updateCursor(true);
+}
+function refreshLead(scroll = false) {
+  if (!leadMode) return;
+  const el = $('lead');
+  el.style.setProperty('--ls-zoom', String(prefs().zoom));
+  el.innerHTML = renderLeadSheet(editor.score, {
+    perRow: 4,
+    current: editor.cursor.bar,
+    playing: ovPlayBar,
+    title: editor.score.title || fileName,
+    artist: editor.score.artist,
+    tempo: getTempo(editor.score),
+  });
+  const target = el.querySelector('.lsBar.play') ?? (scroll ? el.querySelector('.lsBar.cur') : null);
+  (target as HTMLElement | null)?.scrollIntoView({ block: 'nearest', behavior: ovPlayBar >= 0 ? 'smooth' : 'auto' });
+}
+$('leadBtn').onclick = () => {
+  $('leadBtn').blur();
+  setLeadMode(!leadMode);
+};
+$('lead').addEventListener('mousedown', (e) => {
+  const b = (e.target as HTMLElement).closest('.lsBar[data-bar]') as HTMLElement | null;
+  if (!b) return;
+  editor.clearSelection();
+  editor.cursor.bar = Number(b.dataset.bar);
+  editor.cursor.beat = 0;
+  moved();
+});
+
+// ---------------- chord / lyric entry ----------------
+let entryKind: 'chord' | 'lyric' | null = null;
+const entryEl = document.createElement('div');
+entryEl.id = 'entry';
+entryEl.className = 'hidden';
+entryEl.innerHTML = '<span class="entryLabel"></span><input autocomplete="off" spellcheck="false" />';
+document.body.appendChild(entryEl);
+const entryInput = entryEl.querySelector('input') as HTMLInputElement;
+
+function placeEntry() {
+  if (!entryKind) return;
+  const r = cursorEl.getBoundingClientRect();
+  const w = entryEl.offsetWidth || 180;
+  const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  const y = entryKind === 'chord' ? r.top - 40 : r.bottom + 6;
+  entryEl.style.left = `${x}px`;
+  entryEl.style.top = `${Math.max(8, Math.min(window.innerHeight - 44, y))}px`;
+}
+
+function openEntry(kind: 'chord' | 'lyric') {
+  if (leadMode) setLeadMode(false);
+  editor.clearSelection();
+  if (kind === 'lyric' && !editor.beat.notes.length) editor.stepNoteBeat(1);
+  entryKind = kind;
+  entryEl.classList.remove('hidden');
+  entryEl.classList.toggle('lyric', kind === 'lyric');
+  (entryEl.querySelector('.entryLabel') as HTMLElement).innerHTML = icon(kind === 'chord' ? 'music' : 'textInfo', 13);
+  entryEl.dataset.tip = kind === 'chord' ? t('Akkord: ↵ setzen · Tab nächster Schlag · leer = entfernen · Esc') : t('Liedtext: Leertaste/Tab weiter · ⇧Tab zurück · Silbe mit - trennen · Esc');
+  fillEntry();
+  moved();
+  placeEntry();
+  entryInput.focus();
+  entryInput.select();
+}
+
+function fillEntry() {
+  const b = editor.beat;
+  if (entryKind === 'chord') {
+    entryInput.placeholder = detectChord(beatMidi(b)) || t('z.B. Am7');
+    entryInput.value = chordOf(b) || '';
+  } else {
+    entryInput.placeholder = t('Silbe');
+    entryInput.value = lyricOf(b);
+  }
+}
+
+function commitEntry() {
+  if (!entryKind) return;
+  const v = entryInput.value;
+  if (entryKind === 'chord') {
+    if (v.trim() !== chordOf(editor.beat)) editor.setChord(v);
+  } else editor.setLyric(v);
+}
+
+function closeEntry(commit = true) {
+  if (!entryKind) return;
+  if (commit) commitEntry();
+  entryKind = null;
+  entryEl.classList.add('hidden');
+  entryInput.blur();
+}
+
+entryInput.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  const k = e.key;
+  if (k === 'Escape') {
+    e.preventDefault();
+    closeEntry(entryKind === 'lyric');
+    return;
+  }
+  if (entryKind === 'chord') {
+    if (k === 'Enter' && !entryInput.value && entryInput.placeholder && !chordOf(editor.beat) && detectChord(beatMidi(editor.beat))) {
+      // empty + Enter on a fresh beat: take the suggestion
+      entryInput.value = entryInput.placeholder;
+    }
+    if (k === 'Enter') { e.preventDefault(); closeEntry(true); return; }
+    if (k === 'Tab') {
+      e.preventDefault();
+      commitEntry();
+      if (e.shiftKey) editor.prev(); else editor.stepNoteBeat(1) || editor.next();
+      fillEntry();
+      moved();
+      entryInput.select();
+    }
+    return;
+  }
+  // lyrics
+  if (k === ' ' || k === 'Tab' || k === 'Enter') {
+    e.preventDefault();
+    commitEntry();
+    if (e.shiftKey && k === 'Tab') editor.stepNoteBeat(-1);
+    else if (!editor.stepNoteBeat(1)) { closeEntry(false); flash(t('Ende des Songs')); moved(); return; }
+    fillEntry();
+    moved();
+    entryInput.select();
+    return;
+  }
+  if (k === 'Backspace' && !entryInput.value) {
+    e.preventDefault();
+    editor.setLyric('');
+    editor.stepNoteBeat(-1);
+    fillEntry();
+    moved();
+    entryInput.select();
+  }
+});
+entryInput.addEventListener('blur', () => setTimeout(() => {
+  if (entryKind && document.activeElement !== entryInput) closeEntry(true);
+}, 0));
+
+
 editor.onChange = (structural) => {
   if (structural) refreshChrome();
   else refreshOverview();
+  refreshLead();
   render();
   updateStatus();
   scheduleAutosave();
@@ -279,7 +436,9 @@ function drawSelection() {
 
 let lastScrollKey = '';
 function updateCursor(scroll = false) {
+  if (leadMode) return;
   drawSelection();
+  queueMicrotask(placeEntry);
   const g = findCursorGeo();
   if (!g) {
     cursorEl.style.display = 'none';
@@ -1608,6 +1767,18 @@ async function exportWav() {
 
 async function doPrint() {
   stop();
+  if (leadMode) {
+    document.getElementById('printArea')?.remove();
+    const area = document.createElement('div');
+    area.id = 'printArea';
+    area.className = 'leadPrint';
+    area.innerHTML = $('lead').innerHTML;
+    area.querySelectorAll('.cur,.play').forEach((x) => x.classList.remove('cur', 'play'));
+    document.body.appendChild(area);
+    window.addEventListener('afterprint', () => setTimeout(() => area.remove(), 500), { once: true });
+    await openPrintDialog();
+    return;
+  }
   flash(t('Druckansicht wird vorbereitet …'));
   const tracks = multiView ? visibleTracks() : [editor.cursor.track];
   await printScore(editor.score, tracks, api.settings);
@@ -1970,7 +2141,7 @@ api.playerStateChanged.on((e) => {
 api.playedBeatChanged.on((b) => {
   playedBeat = b;
   const pb = b?.voice.bar.index ?? -1;
-  if (pb !== ovPlayBar) { ovPlayBar = pb; refreshOverview(); }
+  if (pb !== ovPlayBar) { ovPlayBar = pb; refreshOverview(); refreshLead(); }
 });
 api.playerFinished.on(() => {
   playedBeat = null;
@@ -2219,6 +2390,7 @@ function run(a: Action) {
     case 'help': toggleHelp(true); break;
     case 'onboarding': openOnboarding(); break;
     case 'demo': void openDemo(); break;
+    case 'lead': setLeadMode(!leadMode); break;
     case 'band': if (bandOpen()) closeBand(); else { closePops(); openBand(); } break;
   }
 }
@@ -2258,6 +2430,7 @@ function moved() {
     refreshSections();
   }
   refreshOverview();
+  refreshLead();
 }
 
 window.addEventListener('keydown', async (e) => {
@@ -2292,7 +2465,7 @@ window.addEventListener('keydown', async (e) => {
   if (mod) {
     const lk = k.toLowerCase();
     const map: Record<string, Action> = {
-      s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: 'multi', i: 'panel', b: 'overview',
+      s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: e.shiftKey ? 'lead' : 'multi', i: 'panel', b: 'overview',
       p: 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
@@ -2400,7 +2573,7 @@ window.addEventListener('keydown', async (e) => {
     case 'r': editor.toggleRest(); break;
     case 't': editor.toggleTriplet(); break;
     case 'i': editor.insertBeat(); break;
-    case 'l': editor.toggleTie(); break;
+    case 'l': if (e.shiftKey) { e.preventDefault(); openEntry('lyric'); } else editor.toggleTie(); break;
     case 'h': editor.toggleHammer(); break;
     case 's': editor.toggleSlide(); break;
     case 'v': editor.toggleVibrato(); break;
@@ -2416,6 +2589,7 @@ window.addEventListener('keydown', async (e) => {
     case 'b': e.shiftKey ? editor.deleteBar() : editor.insertBar(); break;
     case 'w': e.shiftKey ? editor.toggleRepeatEnd() : editor.toggleRepeatStart(); break;
     case 'm': e.preventDefault(); void editTimeSig(); break;
+    case 'c': e.preventDefault(); openEntry('chord'); break;
     default: handled = false;
   }
   if (handled) e.preventDefault();

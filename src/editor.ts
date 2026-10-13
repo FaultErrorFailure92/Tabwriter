@@ -1049,6 +1049,68 @@ export class Editor {
     this.commit(true);
   }
 
+  // ---------- chords & lyrics ----------
+  /** chord name on the cursor beat; empty name removes it */
+  setChord(name: string) {
+    const b = this.beat;
+    const st = this.staff;
+    name = name.trim();
+    this.begin();
+    if (!name) b.chordId = null;
+    else {
+      const ch = new m.Chord();
+      ch.name = name;
+      const stringed = !st.isPercussion && b.notes.length >= 3;
+      if (stringed) {
+        const n = st.tuning.length;
+        const frets: number[] = [];
+        for (let i = 0; i < n; i++) frets.push(b.notes.find((x) => x.string === n - i)?.fret ?? -1);
+        ch.strings = frets;
+        const used = frets.filter((f) => f > 0);
+        ch.firstFret = used.length ? Math.min(...used) : 1;
+      }
+      ch.showDiagram = stringed;
+      ch.showFingering = false;
+      const id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      st.addChord(id, ch);
+      b.chordId = id;
+    }
+    this.commit(false);
+  }
+
+  /** lyric syllable on the cursor beat (one line) */
+  setLyric(text: string) {
+    const b = this.beat;
+    text = text.trim();
+    if ((b.lyrics?.[0] ?? '') === text) return;
+    this.begin();
+    b.lyrics = text ? [text] : null;
+    this.commit(false);
+  }
+
+  /** move to the next / previous beat that has notes (for lyrics entry) */
+  stepNoteBeat(dir: 1 | -1): boolean {
+    const bars = this.staff.bars;
+    let { bar, beat } = this.cursor;
+    for (;;) {
+      beat += dir;
+      if (beat < 0) {
+        bar--;
+        if (bar < 0) return false;
+        beat = bars[bar].voices[0].beats.length - 1;
+      } else if (beat >= bars[bar].voices[0].beats.length) {
+        bar++;
+        beat = 0;
+        if (bar >= bars.length) return false;
+      }
+      if (bars[bar].voices[0].beats[beat]?.notes.length) {
+        this.cursor.bar = bar;
+        this.cursor.beat = beat;
+        return true;
+      }
+    }
+  }
+
   // ---------- arrangement ----------
   /** run an arrangement operation on the JSON form of the score (undoable) */
   arrOp(fn: (o: any, arr: A.Arrangement) => void) {
