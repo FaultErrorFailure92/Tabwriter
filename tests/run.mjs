@@ -2,6 +2,7 @@
 // Run: npm test   (first time: npx playwright install chromium)
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
 
 const server = await createServer({ server: { port: 5179, strictPort: false }, logLevel: 'error' });
 await server.listen();
@@ -186,6 +187,25 @@ await test('Tickets: moves, buyers, tiers and totals', async () => {
     return [s.received, s.sold, s.available, s.money, M.bandShare(t.tiers, 60), tot.sold, tot.money];
   });
   eq(r, [20, 4, 20, 60, 200, 54, 810], 'stats, share, totals');
+});
+
+await test('Tickets: import of the old Excel presale workbook', async () => {
+  const bytes = [...readFileSync(new URL('./fixtures/karten-vvk.xlsx', import.meta.url))];
+  const r = await page.evaluate(async (bytes) => {
+    const X = await import('/src/band/xlsx.ts');
+    const I = await import('/src/band/ticketsImport.ts');
+    const M = await import('/src/band/model.ts');
+    const b = M.newBand('T');
+    const anna = M.newMember();
+    anna.name = 'Anna';
+    b.members.push(anna);
+    const g = M.newGig('2030-01-01');
+    const res = I.importTicketWorkbook(await X.readXlsx(new Uint8Array(bytes)), b, g);
+    const a = M.ticketStats(g.tickets, anna.id);
+    const tot = M.ticketTotals(g.tickets);
+    return [res.members, res.buyers, res.skipped, g.title, g.date, g.tickets.presale, a.received, a.sold, a.handed, a.paid, a.cash, tot.contingent, tot.doorList, tot.share];
+  }, bytes);
+  eq(r, [['Ben'], 3, 1, 'Testfest', '2030-05-01', 12, 10, 3, 2, 36, 24, 40, 1, 8], 'import');
 });
 
 await test('Tickets UI: presale tab renders', async () => {

@@ -4,6 +4,8 @@ import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, iconBtn, input, select, esc, save } from './dom';
 import { openPrintDialog } from '../print';
+import { readXlsx } from './xlsx';
+import { importTicketWorkbook, looksLikeTicketWorkbook } from './ticketsImport';
 import {
   type Band, type Gig, type Buyer, type Holder,
   newBuyer, newMove, ticketStats, ticketTotals, fmtMoney,
@@ -25,7 +27,7 @@ export function holderName(b: Band, h: Holder): string {
 
 const pct = (a: number, z: number) => (z > 0 ? Math.min(100, Math.round((a / z) * 100)) : 0);
 
-export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>) {
+export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>, flash: (m: string) => void = () => {}) {
   const tk = g.tickets;
   const tot = ticketTotals(tk);
 
@@ -110,7 +112,7 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
   // ---- sellers ----
   const ss = sec(right, t('Verkäufer'));
   const tbl = el('div', 'tkSellers');
-  tbl.appendChild(el('div', 'row head', `<span>${t('Wer')}</span><span>${t('erhalten')}</span><span>${t('verfügbar')}</span><span>${t('verkauft')}</span><span>${t('Geld')}</span><span></span>`));
+  tbl.appendChild(el('div', 'row head', `<span>${t('Wer')}</span><span>${t('erhalten')}</span><span>${t('verfügbar')}</span><span>${t('verkauft')}</span><span>${t('Geld')}</span>`));
   for (const h of holders(b, g)) {
     const s = ticketStats(tk, h);
     if (h === 'band' && !s.received && !s.sold && !s.given) continue;
@@ -133,7 +135,7 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
     save();
     rerender();
   }, 'tb');
-  const sm = sec(left, t('Kartenbewegungen'), addMove);
+  const sm = sec(d, t('Kartenbewegungen'), addMove);
   if (!tk.moves.length) sm.appendChild(el('div', 'hint', esc(t('Zuerst: Kontingent vom Veranstalter an die Bandkasse. Dann an die Verkäufer verteilen.'))));
   const opts: [string, string][] = [['venue', t('Veranstalter')], ...holders(b, g).map((h) => [h, holderName(b, h)] as [string, string])];
   for (const mv of tk.moves) {
@@ -175,7 +177,8 @@ export function renderTickets(d: HTMLElement, b: Band, g: Gig, rerender: () => v
     const rows = document.querySelectorAll<HTMLInputElement>('#band .buyerRow input.name');
     rows[rows.length - 1]?.focus();
   };
-  bh.append(q, pr2, add);
+  const imp = iconBtn('folder', t('Aus Excel importieren (alte Karten-VVK-Liste)'), () => importExcel(b, g, rerender, confirm, flash));
+  bh.append(q, imp, pr2, add);
   const sb = el('section', 'gigSec tkBuyers');
   const top = el('div', 'secTop', `<h3>${esc(sellerFilter ? t('Käufer von {x}', { x: holderName(b, sellerFilter) }) : t('Käufer'))}</h3>`);
   top.appendChild(bh);
@@ -238,6 +241,30 @@ function buyerRow(b: Band, g: Gig, by: Buyer, sOpts: [string, string][], rerende
 }
 
 // ---------------- printing ----------------
+
+function importExcel(b: Band, g: Gig, rerender: () => void, confirm: (m: string) => Promise<boolean>, flash: (m: string) => void) {
+  const inp = el('input');
+  inp.type = 'file';
+  inp.accept = '.xlsx';
+  inp.onchange = async () => {
+    const f = inp.files?.[0];
+    if (!f) return;
+    try {
+      const sheets = await readXlsx(new Uint8Array(await f.arrayBuffer()));
+      if (!looksLikeTicketWorkbook(sheets)) return flash(t('Keine Karten-VVK-Liste erkannt'));
+      const tk = g.tickets;
+      if ((tk.buyers.length || tk.moves.length) && !(await confirm(t('Vorverkauf dieses Gigs durch „{x}“ ersetzen?', { x: f.name })))) return;
+      const r = importTicketWorkbook(sheets, b, g);
+      save();
+      rerender();
+      flash(t('Importiert: {b} Käufer, {m} Bewegungen', { b: r.buyers, m: r.moves }) + (r.members.length ? ' · ' + t('neue Mitglieder: {x}', { x: r.members.join(', ') }) : ''));
+    } catch (e) {
+      console.error(e);
+      flash(t('Datei konnte nicht gelesen werden'));
+    }
+  };
+  inp.click();
+}
 
 function printDoorList(b: Band, g: Gig) {
   const tk = g.tickets;

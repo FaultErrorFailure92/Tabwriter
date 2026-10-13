@@ -879,4 +879,10 @@ export const EN: Record<string, string> = {
   "Planung": "Planning",
   "Vorverkauf": "Presale",
   "{n} VVK": "{n} presale",
+  "Datei konnte nicht gelesen werden": "Could not read the file",
+  "Aus Excel importieren (alte Karten-VVK-Liste)": "Import from Excel (old ticket presale sheet)",
+  "Keine Karten-VVK-Liste erkannt": "No ticket presale sheet found",
+  "Vorverkauf dieses Gigs durch „{x}“ ersetzen?": "Replace this gig's presale with “{x}”?",
+  "Importiert: {b} Käufer, {m} Bewegungen": "Imported: {b} buyers, {m} moves",
+  "neue Mitglieder: {x}": "new members: {x}",
 };

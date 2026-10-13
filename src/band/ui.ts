@@ -841,7 +841,7 @@ function gigDetail(g: Gig): HTMLElement {
   }
   d.appendChild(seg);
   if (gigSub === 'tickets') {
-    renderTickets(d, band, g, render, (m) => host.confirm(m));
+    renderTickets(d, band, g, render, (m) => host.confirm(m), (m) => host.flash(m));
     return d;
   }
 

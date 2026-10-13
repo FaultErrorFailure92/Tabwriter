@@ -1069,7 +1069,7 @@ body.arDragging, body.arDragging * { cursor: grabbing !important; }
 .setAdd { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
 .setAdd select { width: 240px; }
 .setAdd .btn { display: inline-flex; align-items: center; gap: 6px; }
-.gigCols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.gigCols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
 .gigSec { margin-top: 12px; }
 .gigSec .secTop { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .gigSec h3 { margin: 0; font: 600 12px var(--font); color: var(--label2); }
@@ -1429,8 +1429,9 @@ label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 .tkSellers i { font-style: normal; color: var(--label3); font-size: 11px; }
 .tkSellers .money { position: relative; padding-bottom: 5px; }
 .tkSellers .money i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #30d158 var(--c), color-mix(in srgb, #30d158 45%, transparent) var(--c) var(--p), var(--fill2) var(--p)); }
-.moveRow { display: grid; grid-template-columns: 128px 64px 1fr 14px 1fr 22px; gap: 6px; align-items: center; margin-bottom: 4px; }
+.moveRow { display: grid; grid-template-columns: 128px 64px minmax(0, 200px) 14px minmax(0, 200px) 22px; gap: 6px; align-items: center; margin-bottom: 4px; }
 .moveRow .arrow { color: var(--label3); text-align: center; }
+.moveRow > select.pInput { min-width: 0; width: 100%; height: 26px; }
 .moveRow:not(:hover) .tb { visibility: hidden; }
 .tkBuyers { margin-top: 18px; }
 .tkBuyers .secTop .btnGroup { align-items: center; }
