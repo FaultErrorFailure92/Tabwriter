@@ -1395,3 +1395,10 @@ label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 #fbControls select { width: auto !important; max-width: 160px; }
 #lcdVoiceCell { cursor: pointer; }
 #lcdVoiceCell.changed .big { color: var(--accent); }
+
+.ovCell.ref { background-image: repeating-linear-gradient(90deg, transparent 0 5px, rgba(255,255,255,.35) 5px 7px); outline: 1.5px dashed color-mix(in srgb, var(--k) 70%, transparent); outline-offset: -1.5px; }
+.popHead { font: 600 12px var(--font); color: var(--label2); padding: 4px 10px 6px; }
+.fromRow { display: grid; grid-template-columns: 20px 1fr 150px; gap: 8px; align-items: center; padding: 3px 8px; }
+.fromRow .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
+.fromRow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.fromRow select { width: 150px !important; }

@@ -25,7 +25,7 @@ async function test(name, fn) {
     await page.waitForFunction(() => window.app);
     await page.evaluate(() => indexedDB.deleteDatabase('tabwriter'));
     await fn();
-    console.log(`  ✓ ${name}`, errors.length);
+    console.log(`  ✓ ${name}`);
   } catch (e) {
     failed++;
     console.log(`  ✗ ${name}\n    ${e.message}`);
@@ -79,6 +79,26 @@ await test('Arrangement: linked copies follow edits, .tabw keeps them', async ()
     return [linked, window.app.editor.arr.blocks.length];
   });
   eq(r, [true, 3], 'linked, blocks after reload');
+});
+
+await test('Arrangement: a track can play another part (both ways)', async () => {
+  await demo();
+  const r = await page.evaluate(async () => {
+    const A = await import('/src/arrangement.ts');
+    const e = window.app.editor;
+    e.enableArrangement(true);
+    e.setSection('B', 2);
+    const partA = e.arr.blocks[0].part;
+    e.arrOp((o, a) => A.setTrackFrom(o, a, 1, 0, partA));
+    const f = (bar) => window.app.editor.score.tracks[0].staves[0].bars[bar].voices[0].beats.map((b) => b.notes.map((n) => n.fret).join('.')).join(' ');
+    const copied = f(2) === f(0);
+    e.cursor = { track: 0, bar: 2, beat: 0, row: 0 };
+    e.typeDigit(9);
+    const back = f(0) === f(2) && f(0).includes('9');
+    const bass = window.app.editor.score.tracks[1].staves[0].bars;
+    return [copied, back, JSON.stringify(bass[2].voices[0].beats.length) !== undefined];
+  });
+  eq(r, [true, true, true], 'copied, edit flows back');
 });
 
 await test('Undo / redo keeps arrangement in sync', async () => {

@@ -844,6 +844,7 @@ function refreshOverview() {
     arrangement: t('Arrangement'),
     linked: (n) => t('{n}× verknüpft', { n }),
     times: (n) => t('{n}× wiederholen', { n }),
+    from: (p) => t('aus {x}', { x: p }),
   });
   $('arrBtn').classList.toggle('on', !!editor.arr);
   $('arrAdd').classList.toggle('hidden', !editor.arr);
@@ -1072,6 +1073,9 @@ function openBlockMenu(i: number, x: number, y: number) {
       editor.arrOp((o, a) => A.setMute(o, a, a.blocks[i], k, !m));
     });
   });
+  if (arr.parts.length > 1) {
+    menuButton(pop, 'blocks', t('Spuren aus anderen Teilen …'), () => openTrackFrom(i, x, y));
+  }
   pop.appendChild(document.createElement('hr'));
   if (i > 0) menuButton(pop, 'arrowLeft', t('Nach links'), () => { editor.arrOp((o, a) => A.move(o, a, i, i - 1)); gotoBlock(i - 1); });
   if (i < arr.blocks.length - 1) menuButton(pop, 'arrowRight', t('Nach rechts'), () => { editor.arrOp((o, a) => A.move(o, a, i, i + 1)); gotoBlock(i + 1); });
@@ -1087,6 +1091,34 @@ function openBlockMenu(i: number, x: number, y: number) {
     pop.appendChild(document.createElement('hr'));
     menuButton(pop, 'trash', t('Block löschen'), () => editor.arrOp((o, a) => A.remove(o, a, i)), 'danger');
   }
+  closePops();
+  placePop(pop, x, y);
+}
+
+/** per track: play this part's own material or another part's (e.g. Strophe-Drums im Refrain) */
+function openTrackFrom(i: number, x: number, y: number) {
+  const arr = editor.arr;
+  if (!arr) return;
+  const bl = arr.blocks[i];
+  const pop = $('trackMenu');
+  pop.innerHTML = `<div class="popHead">${escapeHtml(t('Spuren in „{x}“', { x: A.partOf(arr, bl).name }))}</div>`;
+  editor.score.tracks.forEach((tr, k) => {
+    const row = document.createElement('label');
+    row.className = 'fromRow';
+    row.innerHTML = `<span class="ovIcon trackIcon ${trackKind(tr)}">${icon(KIND_ICON[trackKind(tr)] ?? 'music', 12)}</span><span class="nm">${escapeHtml(tr.name)}</span>`;
+    const s = document.createElement('select');
+    s.className = 'pInput small';
+    s.add(new Option(bl.muted.includes(k) ? t('stumm') : t('eigene'), ''));
+    for (const p of arr.parts) if (p.id !== bl.part) s.add(new Option(t('aus {x}', { x: p.name }), p.id));
+    s.value = bl.from?.[k] ?? '';
+    s.onchange = () => {
+      const v = s.value;
+      editor.arrOp((o, a) => A.setTrackFrom(o, a, i, k, v));
+      flash(v ? t('{x} spielt hier „{y}“ – Änderungen gelten in beiden Teilen', { x: tr.name, y: arr.parts.find((p) => p.id === v)?.name ?? '' }) : t('{x} spielt hier wieder den eigenen Teil', { x: tr.name }));
+    };
+    row.appendChild(s);
+    pop.appendChild(row);
+  });
   closePops();
   placePop(pop, x, y);
 }

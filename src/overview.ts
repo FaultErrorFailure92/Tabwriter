@@ -58,16 +58,22 @@ export interface OverviewLabels {
   arrangement: string;
   linked: (n: number) => string;
   times: (n: number) => string;
+  from: (part: string) => string;
 }
 
 export function renderOverview(root: HTMLElement, s: OverviewState, labels: OverviewLabels) {
   const bars = s.score.masterBars;
   // muted cells per track (bar index set)
   const muted = new Set<string>();
+  const refs = new Map<string, string>(); // "track:bar" -> part name
   if (s.arr) {
     const st = starts(s.arr);
     s.arr.blocks.forEach((bl, i) => {
       for (const t of bl.muted) for (let k = 0; k < bl.len; k++) muted.add(`${t}:${st[i] + k}`);
+      for (const [t, p] of Object.entries(bl.from ?? {})) {
+        const name = s.arr!.parts.find((x) => x.id === p)?.name ?? '';
+        for (let k = 0; k < bl.len; k++) refs.set(`${t}:${st[i] + k}`, name);
+      }
     });
   }
   let head = `<div class="ovNames">${s.arr ? `<div class="ovArrHead">${esc(labels.arrangement)}</div>` : ''}<div class="ovCorner"></div>`;
@@ -95,12 +101,14 @@ export function renderOverview(root: HTMLElement, s: OverviewState, labels: Over
       const state = barHasNotes(st?.bars[b]);
       const cls = ['ovCell', kind, state];
       if (muted.has(`${i}:${b}`)) cls.push('muted');
+      const ref = refs.get(`${i}:${b}`);
+      if (ref) cls.push('ref');
       if (b === s.bar) cls.push('col');
       if (b === s.playingBar) cls.push('play');
       if (i === s.track && b === s.bar) cls.push('cur');
       if (i === s.track && s.sel && b >= s.sel.start && b <= s.sel.end) cls.push('sel');
       if (bars[b].section && b > 0) cls.push('secStart');
-      grid += `<div class="${cls.join(' ')}" data-t="${i}" data-b="${b}"></div>`;
+      grid += `<div class="${cls.join(' ')}" data-t="${i}" data-b="${b}"${ref ? ` data-tip="${esc(labels.from(ref))}"` : ''}></div>`;
     });
     grid += '</div>';
   });

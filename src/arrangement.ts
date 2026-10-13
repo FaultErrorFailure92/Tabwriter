@@ -16,6 +16,7 @@ export interface Block {
   times: number; // 1 = once, >1 = repeat signs around the block
   comment: string;
   muted: number[]; // track indices that are silent (empty) in this block
+  from?: Record<string, string>; // track index -> Part.id: this track plays that part's material
   stash?: Record<string, unknown[][]>; // track -> staves -> bars, kept while muted
 }
 
@@ -126,9 +127,12 @@ function trackHash(o: Obj, t: number, s: number, len: number): string {
   return JSON.stringify(o.tracks[t].staves.map((st: Obj) => st.bars.slice(s, s + len)), (k, v) => (k === 'id' ? undefined : v));
 }
 
+/** track handled outside the block link (muted or taken from another part) */
+const local = (bl: Block, t: number) => bl.muted.includes(t) || !!bl.from?.[t];
+
 function blockHash(o: Obj, bl: Block, s: number, skip: number[] = []): string {
   const mbs = o.masterbars.slice(s, s + bl.len).map((mb: Obj, i: number) => mbNorm(mb, i === 0));
-  const tr = o.tracks.map((_: Obj, t: number) => (bl.muted.includes(t) || skip.includes(t) ? '-' : trackHash(o, t, s, bl.len)));
+  const tr = o.tracks.map((_: Obj, t: number) => (local(bl, t) || skip.includes(t) ? '-' : trackHash(o, t, s, bl.len)));
   return JSON.stringify(mbs) + '|' + tr.join('|');
 }
 
@@ -157,13 +161,13 @@ function copyBlock(o: Obj, arr: Arrangement, src: Block, dst: Block) {
       const own = stf.bars.slice(d, d + oldLen);
       const fit = (bars: Obj[]) => Array.from({ length: n }, (_, i) => (bars[i] ? bars[i] : emptyBar(bars[bars.length - 1] ?? stf.bars[0])));
       if (dst.muted.includes(t)) return fit([]).map((b) => emptyBar(b));
-      if (src.muted.includes(t)) return fit(own);
+      if (src.muted.includes(t) || dst.from?.[t] || src.from?.[t]) return fit(own);
       return stf.bars.slice(s, s + n).map((b: Obj) => stripIds(b));
     }),
   );
   // muted tracks of dst: keep the source content as stash for unmuting
   for (const t of dst.muted) {
-    if (src.muted.includes(t)) continue;
+    if (src.muted.includes(t) || src.from?.[t]) continue;
     dst.stash = dst.stash ?? {};
     dst.stash[t] = o.tracks[t].staves.map((stf: Obj) => stf.bars.slice(s, s + n).map(stripIds));
   }
@@ -202,16 +206,65 @@ function applyMute(o: Obj, arr: Arrangement, bl: Block, t: number, on: boolean) 
 
 export interface SyncState {
   hashes: Map<string, string>;
+  tracks: Map<string, string>; // "<blockId>:<track>" -> hash
 }
 
 export function newSyncState(): SyncState {
-  return { hashes: new Map() };
+  return { hashes: new Map(), tracks: new Map() };
 }
 
 export function rememberHashes(o: Obj, arr: Arrangement, ss: SyncState) {
   ss.hashes.clear();
+  ss.tracks.clear();
   const st = starts(arr);
-  arr.blocks.forEach((bl, i) => ss.hashes.set(bl.id, blockHash(o, bl, st[i])));
+  arr.blocks.forEach((bl, i) => {
+    ss.hashes.set(bl.id, blockHash(o, bl, st[i]));
+    o.tracks.forEach((_: Obj, t: number) => ss.tracks.set(`${bl.id}:${t}`, trackHash(o, t, st[i], bl.len)));
+  });
+}
+
+/** copy one track's bars from block src into block dst (lengths may differ) */
+function copyTrack(o: Obj, arr: Arrangement, src: Block, dst: Block, t: number) {
+  const st = starts(arr);
+  const s = st[arr.blocks.indexOf(src)];
+  const d = st[arr.blocks.indexOf(dst)];
+  const tr = o.tracks[t];
+  if (!tr || src === dst) return;
+  tr.staves.forEach((stf: Obj) => {
+    for (let i = 0; i < dst.len; i++) {
+      const b = stf.bars[s + i];
+      stf.bars[d + i] = b ? stripIds(b) : emptyBar(stf.bars[d + i]);
+    }
+  });
+}
+
+/** tracks taken from another part: keep them in step with that part (both directions) */
+function syncTrackRefs(o: Obj, arr: Arrangement, ss: SyncState, focus: number) {
+  const st = starts(arr);
+  const pairs = new Map<string, { part: string; t: number }>();
+  for (const bl of arr.blocks) for (const [k, p] of Object.entries(bl.from ?? {})) pairs.set(`${p}:${k}`, { part: p, t: Number(k) });
+  for (const { part, t } of pairs.values()) {
+    const group = arr.blocks.filter((b) => !b.muted.includes(t) && ((b.part === part && !b.from?.[t]) || b.from?.[t] === part));
+    if (group.length < 2) continue;
+    const dirty = group.filter((b) => ss.tracks.get(`${b.id}:${t}`) !== trackHash(o, t, st[arr.blocks.indexOf(b)], b.len));
+    const own = group.find((b) => b.part === part);
+    const src = dirty.includes(arr.blocks[focus]) ? arr.blocks[focus] : dirty[0] ?? own;
+    if (!src) continue;
+    for (const b of group) if (b !== src) copyTrack(o, arr, src, b, t);
+  }
+}
+
+/** let track t of block i play the material of part `part` ('' = its own again) */
+export function setTrackFrom(o: Obj, arr: Arrangement, i: number, t: number, part: string) {
+  const bl = arr.blocks[i];
+  if (!part || part === bl.part) {
+    if (bl.from) delete bl.from[t];
+    return;
+  }
+  bl.from = { ...(bl.from ?? {}), [t]: part };
+  bl.muted = bl.muted.filter((x) => x !== t);
+  const src = arr.blocks.find((b) => b.part === part && !b.from?.[t]);
+  if (src) copyTrack(o, arr, src, bl, t);
 }
 
 /** section markers + repeat signs at block borders */
@@ -299,6 +352,9 @@ export function sync(o: Obj, arr: Arrangement, ss: SyncState, editBar: number, f
       st = starts(arr);
     }
   }
+  // drop references to parts that no longer exist
+  for (const bl of arr.blocks) if (bl.from) for (const [k, p] of Object.entries(bl.from)) if (!arr.parts.some((x) => x.id === p) || p === bl.part) delete bl.from[k];
+  syncTrackRefs(o, arr, ss, focus);
   decorate(o, arr);
   rememberHashes(o, arr, ss);
 }
@@ -443,6 +499,14 @@ export function fromSections(o: Obj): Arrangement {
 export function trackRemoved(arr: Arrangement, t: number) {
   for (const bl of arr.blocks) {
     bl.muted = bl.muted.filter((x) => x !== t).map((x) => (x > t ? x - 1 : x));
+    if (bl.from) {
+      const nf: Record<string, string> = {};
+      for (const [k, v] of Object.entries(bl.from)) {
+        const n = Number(k);
+        if (n !== t) nf[n > t ? n - 1 : n] = v;
+      }
+      bl.from = nf;
+    }
     if (bl.stash) {
       const ns: Record<string, unknown[][]> = {};
       for (const [k, v] of Object.entries(bl.stash)) {

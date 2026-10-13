@@ -802,4 +802,11 @@ export const EN: Record<string, string> = {
   "Stimme 1": "Voice 1",
   "Stimme 1/2 wechseln (Q)": "Switch voice 1/2 (Q)",
   "Stimme": "Voice",
+  "Spuren aus anderen Teilen …": "Tracks from other parts …",
+  "Spuren in „{x}“": "Tracks in \"{x}\"",
+  "stumm": "muted",
+  "eigene": "own",
+  "aus {x}": "from {x}",
+  "{x} spielt hier „{y}“ – Änderungen gelten in beiden Teilen": "{x} plays \"{y}\" here – edits apply to both parts",
+  "{x} spielt hier wieder den eigenen Teil": "{x} plays its own part here again",
 };
