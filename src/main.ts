@@ -193,16 +193,101 @@ function setLeadMode(on: boolean) {
   $('sheet').classList.toggle('hidden', on);
   $('lead').classList.toggle('hidden', !on);
   $('leadBtn').classList.toggle('on', on);
+  if (!on) document.body.classList.remove('rehearsing');
   $('viewBtn').classList.toggle('on', !on && multiView);
   $('oneBtn').classList.toggle('on', !on && !multiView);
   if (on) refreshLead(true);
   else updateCursor(true);
 }
+/** bar ranges of the sections (or the whole song) */
+function sectionRanges(): { name: string; a: number; z: number }[] {
+  const mbs = editor.score.masterBars;
+  const starts = mbs.map((mb, i) => (mb.section ? i : -1)).filter((i) => i >= 0);
+  if (!starts.length || starts[0] !== 0) starts.unshift(0);
+  return starts.map((a, k) => ({ name: mbs[a].section?.text || t('Anfang'), a, z: (starts[k + 1] ?? mbs.length) - 1 }));
+}
+
+/** select bars a..z on the current track and loop them */
+function loopBars(a: number, z: number) {
+  stop();
+  editor.selAnchor = { bar: a, beat: 0 };
+  editor.cursor.bar = z;
+  editor.cursor.beat = Math.max(0, editor.staff.bars[z].voices[0].beats.length - 1);
+  looping = true;
+  api.isLooping = true;
+  api.playbackRange = selectionRange();
+  applyPractice();
+  moved();
+}
+
+function rehearsalBar(): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'rehearse';
+  const btn = (ic: IconName, tip: string, fn: () => void, on = false, label = '') => {
+    const b = document.createElement('button');
+    b.className = 'tbtn' + (on ? ' on' : '');
+    b.innerHTML = label ? `<span>${escapeHtml(label)}</span>` : icon(ic);
+    b.dataset.tip = tip;
+    b.onclick = (e) => {
+      e.stopPropagation();
+      fn();
+    };
+    return b;
+  };
+  bar.appendChild(btn(playing ? 'pause' : 'play', t('Play / Pause (Leertaste)'), () => togglePlay(), playing));
+  bar.appendChild(btn('stop', t('Stop'), () => stop()));
+  const sp = Math.round(prefs().speed * 100);
+  bar.appendChild(btn('minus', t('Langsamer'), () => { setPrefs({ speed: Math.max(0.25, Math.round((prefs().speed - 0.05) * 100) / 100) }); applyPractice(); refreshLead(); }));
+  const spd = document.createElement('span');
+  spd.className = 'rhSpeed' + (sp !== 100 ? ' changed' : '');
+  spd.textContent = `${sp} % · ${Math.round(getTempo(editor.score) * prefs().speed)} bpm`;
+  spd.dataset.tip = t('Klick = 100 %');
+  spd.onclick = () => { setPrefs({ speed: 1 }); applyPractice(); refreshLead(); };
+  bar.appendChild(spd);
+  bar.appendChild(btn('plus', t('Schneller'), () => { setPrefs({ speed: Math.min(1.5, Math.round((prefs().speed + 0.05) * 100) / 100) }); applyPractice(); refreshLead(); }));
+  bar.appendChild(document.createElement('i'));
+  bar.appendChild(btn('metronome', t('Metronom'), () => { toggleMetronome(); refreshLead(); }, prefs().metronome));
+  bar.appendChild(btn('loop', looping ? t('Schleife aus') : t('Schleife über die Auswahl / den Song'), () => { toggleLoop(); refreshLead(); }, looping));
+  bar.appendChild(document.createElement('i'));
+  // parts: click = loop this part
+  const parts = document.createElement('div');
+  parts.className = 'rhParts';
+  const sel = editor.hasSelection ? editor.selection() : null;
+  for (const r of sectionRanges()) {
+    const on = looping && sel && sel.start.bar === r.a && sel.end.bar === r.z;
+    const c = document.createElement('button');
+    c.className = 'chipBtn' + (on ? ' on' : '');
+    c.textContent = r.name;
+    c.dataset.tip = on ? t('Schleife aus') : t('Takte {a}–{z} in Schleife', { a: r.a + 1, z: r.z + 1 });
+    c.onclick = () => {
+      if (on) {
+        toggleLoop();
+        editor.clearSelection();
+      } else loopBars(r.a, r.z);
+      refreshLead();
+    };
+    parts.appendChild(c);
+  }
+  bar.appendChild(parts);
+  bar.appendChild(btn('textInfo', t('Kleiner'), () => { setPrefs({ leadZoom: Math.max(0.8, prefs().leadZoom - 0.1) }); refreshLead(); }, false, 'A−'));
+  bar.appendChild(btn('textInfo', t('Größer'), () => { setPrefs({ leadZoom: Math.min(2.6, prefs().leadZoom + 0.1) }); refreshLead(); }, false, 'A+'));
+  bar.appendChild(btn('sidebarRight', document.body.classList.contains('rehearsing') ? t('Seitenleisten zeigen') : t('Bühnenansicht: nur Lead Sheet'), () => {
+    document.body.classList.toggle('rehearsing');
+    refreshLead();
+  }, document.body.classList.contains('rehearsing')));
+  return bar;
+}
+
 function refreshLead(scroll = false) {
   if (!leadMode) return;
   const el = $('lead');
-  el.style.setProperty('--ls-zoom', String(prefs().zoom));
-  el.innerHTML = renderLeadSheet(editor.score, {
+  el.style.setProperty('--ls-zoom', String(prefs().leadZoom));
+  el.innerHTML = '';
+  el.appendChild(rehearsalBar());
+  const body = document.createElement('div');
+  body.className = 'lsBody';
+  el.appendChild(body);
+  body.innerHTML = renderLeadSheet(editor.score, {
     perRow: 4,
     current: editor.cursor.bar,
     playing: ovPlayBar,
@@ -211,7 +296,7 @@ function refreshLead(scroll = false) {
     tempo: getTempo(editor.score),
   });
   const target = el.querySelector('.lsBar.play') ?? (scroll ? el.querySelector('.lsBar.cur') : null);
-  (target as HTMLElement | null)?.scrollIntoView({ block: 'nearest', behavior: ovPlayBar >= 0 ? 'smooth' : 'auto' });
+  (target as HTMLElement | null)?.scrollIntoView({ block: ovPlayBar >= 0 ? 'center' : 'nearest', behavior: ovPlayBar >= 0 ? 'smooth' : 'auto' });
 }
 $('leadBtn').onclick = () => {
   $('leadBtn').blur();
@@ -1822,7 +1907,7 @@ async function doPrint() {
     const area = document.createElement('div');
     area.id = 'printArea';
     area.className = 'leadPrint';
-    area.innerHTML = $('lead').innerHTML;
+    area.innerHTML = $('lead').querySelector('.lsBody')?.innerHTML ?? '';
     area.querySelectorAll('.cur,.play').forEach((x) => x.classList.remove('cur', 'play'));
     document.body.appendChild(area);
     window.addEventListener('afterprint', () => setTimeout(() => area.remove(), 500), { once: true });
@@ -2205,6 +2290,7 @@ api.playerStateChanged.on((e) => {
   playBtn.classList.toggle('playing', playing);
   cursorEl.style.visibility = playing ? 'hidden' : '';
   document.body.classList.toggle('playing', playing);
+  refreshLead();
   if (!playing && playedBeat) {
     jumpToBeat(playedBeat);
     playedBeat = null;

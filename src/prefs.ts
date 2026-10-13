@@ -15,6 +15,7 @@ export interface Prefs {
   autoReflow: boolean;
   metronome: boolean;
   speed: number;
+  leadZoom: number; // lead sheet / rehearsal text size
   overview: boolean;
   ovHeight: number;
 }
@@ -32,6 +33,7 @@ const DEFAULTS: Prefs = {
   autoReflow: true,
   metronome: false,
   speed: 1,
+  leadZoom: 1.2,
   overview: false,
   ovHeight: 200,
 };
