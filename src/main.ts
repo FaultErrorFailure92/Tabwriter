@@ -1754,6 +1754,7 @@ async function openRecent(it: RecentEntry) {
 }
 
 $('libNew').onclick = () => newSong();
+$('libBand').onclick = () => run('band');
 $('libOpen').onclick = () => openSong();
 $('libDemo').onclick = () => openDemo();
 $('libClose').onclick = () => closeLibrary();
@@ -2276,6 +2277,7 @@ window.addEventListener('keydown', async (e) => {
     else if (mod && lk0 === 'n') { e.preventDefault(); run('new'); }
     else if (mod && lk0 === 'o') { e.preventDefault(); run('open'); }
     else if (mod && lk0 === ',') { e.preventDefault(); run('prefs'); }
+    else if (mod && e.shiftKey && lk0 === 'g') { e.preventDefault(); run('band'); }
     else if (mod && e.shiftKey && lk0 === 'l' && hasSong) { e.preventDefault(); closeLibrary(); }
     return;
   }

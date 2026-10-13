@@ -520,4 +520,5 @@ export const EN: Record<string, string> = {
   "Parken, Catering, Backline, Gage …": "Parking, catering, backline, fee …",
   "Aktuelle Band-Daten durch „{x}“ ersetzen?": "Replace current band data with \"{x}\"?",
   "Keine Stagecraft-Datei": "Not a Stagecraft file",
+  "Band": "Band",
 };
