@@ -5,7 +5,9 @@ import { renderOverview } from './overview';
 import { initLang, t, translateDom, currentLang } from './i18n';
 import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
-import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV } from './io';
+import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW } from './io';
+import * as A from './arrangement';
+type Arrangement = A.Arrangement;
 import { listRecent, addRecent, removeRecent, cachedBytes, relTime, dbGet, dbPut, dbDelete, type RecentEntry } from './library';
 import { exportMidi } from './midi';
 import { writeGp5 } from './gp5writer';
@@ -66,7 +68,7 @@ const api = new alphaTab.AlphaTabApi($('at'), settings);
 const editor = new Editor(createEmptyScore(), api.settings);
 editor.autoReflow = prefs().autoReflow;
 
-type Format = 'gp5' | 'gp';
+type Format = 'gp5' | 'gp' | 'tabw';
 let fileName = t('Neuer Song');
 let saveHandle: unknown = null;
 let format: Format = 'gp5';
@@ -141,11 +143,32 @@ function visibleTracks(): number[] {
 }
 
 let renderedKey = '';
+// one render at a time: a result that arrives after the score was replaced
+// would point to beats that no longer exist (broken cursor lookup)
+let renderBusy = false;
+let renderQueued = false;
+let renderGuard = 0;
 function render() {
+  if (renderBusy) {
+    renderQueued = true;
+    return;
+  }
+  renderBusy = true;
   renderPending = true;
   const tracks = visibleTracks();
   renderedKey = tracks.join(',');
+  clearTimeout(renderGuard);
+  renderGuard = window.setTimeout(renderDone, 4000);
   api.renderScore(editor.score, tracks);
+}
+/** returns true when a newer render was started */
+function renderDone(): boolean {
+  clearTimeout(renderGuard);
+  renderBusy = false;
+  if (!renderQueued) return false;
+  renderQueued = false;
+  render();
+  return true;
 }
 
 function setMultiView(on: boolean) {
@@ -168,6 +191,7 @@ api.renderFinished.on(() => {
   hideBoot();
 });
 api.postRenderFinished.on(() => {
+  if (renderDone()) return;
   updateCursor(true);
 });
 api.error.on((e) => flash(t('Fehler: {x}', { x: String((e as any)?.message ?? e) })));
@@ -403,7 +427,16 @@ function refreshOverview() {
     bar: editor.cursor.bar,
     sel: sel ? { start: sel.start.bar, end: sel.end.bar } : null,
     playingBar: ovPlayBar,
-  }, { tracks: t('Spuren'), bar: (n) => t('Takt {n}', { n }) });
+    arr: editor.arr,
+  }, {
+    tracks: t('Spuren'),
+    bar: (n) => t('Takt {n}', { n }),
+    arrangement: t('Arrangement'),
+    linked: (n) => t('{n}× verknüpft', { n }),
+    times: (n) => t('{n}× wiederholen', { n }),
+  });
+  $('arrBtn').classList.toggle('on', !!editor.arr);
+  $('arrAdd').classList.toggle('hidden', !editor.arr);
 }
 function showOverview(on: boolean) {
   ovOpen = on;
@@ -442,9 +475,23 @@ $('overview').addEventListener('mousedown', (e) => {
     window.addEventListener('mouseup', up);
     return;
   }
+  const blk = (e.target as HTMLElement).closest('.arBlock') as HTMLElement | null;
+  if (blk) {
+    e.preventDefault();
+    arrMouseDown(e, Number(blk.dataset.blk));
+    return;
+  }
   const el = (e.target as HTMLElement).closest('[data-b],[data-t]') as HTMLElement | null;
   if (!el) return;
   e.preventDefault();
+  if (e.altKey && editor.arr && el.dataset.t !== undefined && el.dataset.b !== undefined) {
+    // ⌥-click: mute/unmute this track in this block
+    const bi = A.blockAt(editor.arr, Number(el.dataset.b));
+    const tr = Number(el.dataset.t);
+    const on = !editor.arr.blocks[bi].muted.includes(tr);
+    editor.arrOp((o, a) => A.setMute(o, a, a.blocks[bi], tr, on));
+    return;
+  }
   const tr = el.dataset.t !== undefined ? Number(el.dataset.t) : editor.cursor.track;
   const b = el.dataset.b !== undefined ? Number(el.dataset.b) : -1;
   if (tr !== editor.cursor.track) switchTrack(tr);
@@ -464,6 +511,170 @@ $('overview').addEventListener('mousedown', (e) => {
     moved();
     updateCursor(true);
   }
+});
+
+// ---------------- arrangement ----------------
+$('arrBtn').onclick = async () => {
+  $('arrBtn').blur();
+  if (editor.arr) {
+    if (!(await confirmAsk(t('Arrangement ausschalten? Abschnitte bleiben, Verknüpfungen und Kommentare gehen verloren.')))) return;
+    editor.enableArrangement(false);
+    flash(t('Arrangement aus'));
+  } else {
+    editor.enableArrangement(true);
+    flash(t('Arrangement an – Teile aus den Abschnitten erstellt'));
+  }
+};
+$('arrAdd').onclick = () => {
+  $('arrAdd').blur();
+  void arrNewPart();
+};
+
+function arrCur(): number {
+  return editor.arr ? A.blockAt(editor.arr, editor.cursor.bar) : -1;
+}
+
+function gotoBlock(i: number) {
+  const arr = editor.arr;
+  if (!arr) return;
+  editor.clearSelection();
+  editor.cursor.bar = A.starts(arr)[i];
+  editor.cursor.beat = 0;
+  moved();
+  updateCursor(true);
+}
+
+async function arrNewPart() {
+  const at = arrCur();
+  const name = await ask(t('Name des neuen Teils'), t('Bridge'));
+  if (!name) return;
+  const lenS = await ask(t('Anzahl Takte'), '4');
+  const len = Math.max(1, Math.min(256, parseInt(lenS ?? '') || 0));
+  if (!lenS || !len) return;
+  editor.arrOp((o, a) => A.insertNew(o, a, at, name.trim(), len));
+  gotoBlock(at + 1);
+}
+
+function openBlockMenu(i: number, x: number, y: number) {
+  const arr = editor.arr;
+  if (!arr) return;
+  const bl = arr.blocks[i];
+  const part = A.partOf(arr, bl);
+  const linked = A.siblings(arr, bl).length > 1;
+  const pop = $('trackMenu');
+  pop.innerHTML = '';
+  menuButton(pop, 'pencil', t('Umbenennen …'), async () => {
+    const n = await ask(linked ? t('Name (gilt für alle verknüpften)') : t('Name des Teils'), part.name);
+    if (n?.trim()) editor.arrOp((_o, a) => (A.partOf(a, a.blocks[i]).name = n.trim()));
+  });
+  menuButton(pop, 'link', t('Verknüpft duplizieren'), () => {
+    editor.arrOp((o, a) => A.duplicate(o, a, i, i, true));
+    gotoBlock(i + 1);
+  });
+  menuButton(pop, 'duplicate', t('Als eigene Kopie duplizieren'), () => {
+    editor.arrOp((o, a) => A.duplicate(o, a, i, i, false));
+    gotoBlock(i + 1);
+  });
+  if (linked) {
+    menuButton(pop, 'unlink', t('Kopie lösen'), () => {
+      editor.arrOp((_o, a) => {
+        const b = a.blocks[i];
+        b.part = A.addPart(a, `${A.partOf(a, b).name}'`).id;
+      });
+    });
+  }
+  pop.appendChild(document.createElement('hr'));
+  menuButton(pop, 'repeat', bl.times > 1 ? t('Wiederholung: {n}× …', { n: bl.times }) : t('Wiederholen …'), async () => {
+    const n = await ask(t('Wie oft spielen? (1 = keine Wiederholung)'), String(Math.max(2, bl.times)));
+    const v = parseInt(n ?? '');
+    if (v >= 1) editor.arrOp((o, a) => A.setTimes(o, a, a.blocks[i], v));
+  });
+  menuButton(pop, 'comment', bl.comment ? t('Kommentar bearbeiten …') : t('Kommentar …'), async () => {
+    const c = await ask(t('Kommentar zu diesem Block'), bl.comment);
+    if (c !== null) editor.arrOp((_o, a) => (a.blocks[i].comment = c.trim()));
+  });
+  pop.appendChild(document.createElement('hr'));
+  editor.score.tracks.forEach((tr, k) => {
+    const m = bl.muted.includes(k);
+    menuButton(pop, m ? 'speakerSlash' : 'speaker', m ? t('{x} wieder an', { x: tr.name }) : t('{x} hier stumm', { x: tr.name }), () => {
+      editor.arrOp((o, a) => A.setMute(o, a, a.blocks[i], k, !m));
+    });
+  });
+  pop.appendChild(document.createElement('hr'));
+  if (i > 0) menuButton(pop, 'arrowLeft', t('Nach links'), () => { editor.arrOp((o, a) => A.move(o, a, i, i - 1)); gotoBlock(i - 1); });
+  if (i < arr.blocks.length - 1) menuButton(pop, 'arrowRight', t('Nach rechts'), () => { editor.arrOp((o, a) => A.move(o, a, i, i + 1)); gotoBlock(i + 1); });
+  menuButton(pop, 'select', t('Block auswählen'), () => {
+    const s = A.starts(arr)[i];
+    const end = s + bl.len - 1;
+    editor.selAnchor = { bar: s, beat: 0 };
+    editor.cursor.bar = end;
+    editor.cursor.beat = editor.staff.bars[end].voices[0].beats.length - 1;
+    moved();
+  });
+  if (arr.blocks.length > 1) {
+    pop.appendChild(document.createElement('hr'));
+    menuButton(pop, 'trash', t('Block löschen'), () => editor.arrOp((o, a) => A.remove(o, a, i)), 'danger');
+  }
+  closePops();
+  placePop(pop, x, y);
+}
+
+/** click = jump, double-click = rename, right-click = menu, drag = move */
+let arrLastClick = { i: -1, time: 0 };
+function arrMouseDown(e: MouseEvent, i: number) {
+  if (e.button === 2 || e.ctrlKey) {
+    openBlockMenu(i, e.clientX, e.clientY);
+    return;
+  }
+  const now = performance.now();
+  if (arrLastClick.i === i && now - arrLastClick.time < 350) {
+    arrLastClick = { i: -1, time: 0 };
+    const arr = editor.arr!;
+    const part = A.partOf(arr, arr.blocks[i]);
+    void ask(t('Name des Teils'), part.name).then((n) => {
+      if (n?.trim()) editor.arrOp((_o, a) => (A.partOf(a, a.blocks[i]).name = n.trim()));
+    });
+    return;
+  }
+  arrLastClick = { i, time: now };
+  const x0 = e.clientX;
+  const blocks = Array.from(document.querySelectorAll<HTMLElement>('#ovContent .arBlock'));
+  let dragging = false;
+  let target = i;
+  const clearMarks = () => blocks.forEach((b) => b.classList.remove('dropL', 'dropR', 'dragging'));
+  const mv = (m: MouseEvent) => {
+    if (!dragging && Math.abs(m.clientX - x0) < 5) return;
+    dragging = true;
+    document.body.classList.add('arDragging');
+    clearMarks();
+    blocks[i]?.classList.add('dragging');
+    // insertion gap = number of blocks whose middle is left of the mouse
+    let gap = 0;
+    blocks.forEach((b) => {
+      const r = b.getBoundingClientRect();
+      if (m.clientX > r.left + r.width / 2) gap++;
+    });
+    target = gap > i ? gap - 1 : gap;
+    if (gap < blocks.length) blocks[gap].classList.add('dropL');
+    else blocks[blocks.length - 1].classList.add('dropR');
+  };
+  const up = () => {
+    window.removeEventListener('mousemove', mv);
+    window.removeEventListener('mouseup', up);
+    document.body.classList.remove('arDragging');
+    clearMarks();
+    if (dragging) {
+      if (target !== i) {
+        editor.arrOp((o, a) => A.move(o, a, i, target));
+        gotoBlock(target);
+      }
+    } else gotoBlock(i);
+  };
+  window.addEventListener('mousemove', mv);
+  window.addEventListener('mouseup', up);
+}
+$('overview').addEventListener('contextmenu', (e) => {
+  if ((e.target as HTMLElement).closest('.arBlock')) e.preventDefault();
 });
 
 function updateWindowTitle() {
@@ -562,7 +773,10 @@ function refreshSections() {
     };
     row.ondblclick = async () => {
       const n = await ask(t('Name des Abschnitts'), bars[bi].section!.text);
-      if (n !== null) editor.setSection(n, bi);
+      if (n !== null) {
+        const err = editor.setSection(n, bi);
+        if (err) flash(err);
+      }
     };
     list.appendChild(row);
   });
@@ -572,7 +786,10 @@ $('addSection').onclick = async () => {
   $('addSection').blur();
   const cur = editor.masterBar.section?.text ?? '';
   const n = await ask(t('Abschnitt ab Takt {n}', { n: editor.cursor.bar + 1 }), cur || t('Strophe'));
-  if (n !== null) editor.setSection(n);
+  if (n !== null) {
+    const err = editor.setSection(n);
+    if (err) flash(err);
+  }
 };
 
 function toggleMute(i: number) {
@@ -991,7 +1208,10 @@ function refreshBarPanel(el: HTMLElement) {
   name.className = 'pInput';
   name.placeholder = t('z.B. Refrain');
   name.value = mb.section?.text ?? '';
-  name.onchange = () => editor.setSection(name.value);
+  name.onchange = () => {
+    const err = editor.setSection(name.value);
+    if (err) flash(err);
+  };
   name.onkeydown = (e) => {
     if (e.key === 'Enter' || e.key === 'Escape') name.blur();
   };
@@ -1045,7 +1265,7 @@ function closePops() {
   document.querySelectorAll('.pop').forEach((p) => p.classList.add('hidden'));
 }
 document.addEventListener('mousedown', (e) => {
-  if (!(e.target as HTMLElement).closest('.pop, #menuBtn, #addTrack')) closePops();
+  if (!(e.target as HTMLElement).closest('.pop, #menuBtn, #addTrack, .arBlock')) closePops();
 });
 
 $('menuBtn').onclick = () => {
@@ -1211,9 +1431,9 @@ function toggleHelp(show?: boolean) {
 $('help').onclick = () => toggleHelp(false);
 
 // ---------------- files ----------------
-function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: string; format?: Format; dirty?: boolean } = {}) {
+function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: string; format?: Format; dirty?: boolean; arr?: Arrangement | null } = {}) {
   stop();
-  editor.setScore(score);
+  editor.setScore(score, opts.arr ?? null);
   editor.dirty = !!opts.dirty;
   fileName = name.replace(/\.[^.]+$/, '');
   format = opts.format ?? 'gp5';
@@ -1226,8 +1446,9 @@ function loadScore(score: alphaTab.model.Score, name: string, opts: { path?: str
 
 function loadBytes(name: string, bytes: Uint8Array, path?: string): boolean {
   try {
-    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
     const ext = (name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
+    if (ext === 'tabw') return loadTabw(name, bytes, path);
+    const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
     // .gp5 and .gp files are saved back in place in their own format; everything else becomes .gp5
     const fmt: Format = ext === 'gp' ? 'gp' : 'gp5';
     const inPlace = path && (ext === 'gp5' || ext === 'gp') ? path : undefined;
@@ -1244,6 +1465,26 @@ function loadBytes(name: string, bytes: Uint8Array, path?: string): boolean {
     console.error(e);
     return false;
   }
+}
+
+// own format: JSON with the alphaTab score and the arrangement
+interface TabwFile { app: 'tabwriter'; version: number; score: unknown; arrangement: Arrangement | null }
+
+function tabwBytes(): Uint8Array {
+  const d: TabwFile = { app: 'tabwriter', version: 1, score: JSON.parse(snapshot(editor.score)), arrangement: editor.arr };
+  return new TextEncoder().encode(JSON.stringify(d));
+}
+
+function loadTabw(name: string, bytes: Uint8Array, path?: string): boolean {
+  const d = JSON.parse(new TextDecoder().decode(bytes)) as TabwFile;
+  if (d.app !== 'tabwriter' || !d.score) throw new Error(t('Keine Tabwriter-Datei'));
+  const score = restore(JSON.stringify(d.score), api.settings);
+  loadScore(score, name, { path, format: 'tabw', arr: d.arrangement ?? null });
+  void clearAutosave();
+  flash(t('{x} geöffnet', { x: name }));
+  void addRecent({ title: score.title || fileName, artist: score.artist, fileName: name, path, tracks: score.tracks.map((tr) => tr.name) }, bytes);
+  if (d.arrangement && !ovOpen) showOverview(true);
+  return true;
 }
 
 async function openSong() {
@@ -1271,15 +1512,18 @@ function baseName() {
 }
 
 function songBytes(fmt: Format): Uint8Array {
+  if (fmt === 'tabw') return tabwBytes();
   return fmt === 'gp' ? new alphaTab.exporter.Gp7Exporter().export(editor.score, api.settings) : writeGp5(editor.score);
 }
 
 async function saveSong(saveAs = false) {
   try {
-    const fmt: Format = saveAs ? 'gp5' : format;
-    const type = fmt === 'gp' ? GP7 : GP5;
+    // with an arrangement the song is saved as .tabw (GP5/GP7 stay available as export)
+    const fmt: Format = editor.arr ? 'tabw' : saveAs ? 'gp5' : format;
+    const type = fmt === 'tabw' ? TABW : fmt === 'gp' ? GP7 : GP5;
     const bytes = songBytes(fmt);
-    const r = await saveFile(`${baseName()}.${type.ext}`, bytes, saveAs ? undefined : saveHandle ?? undefined, type);
+    const reuse = !saveAs && fmt === format;
+    const r = await saveFile(`${baseName()}.${type.ext}`, bytes, reuse ? saveHandle ?? undefined : undefined, type);
     if (!r) return false;
     format = fmt;
     if (r.handle) saveHandle = r.handle;
@@ -1300,10 +1544,10 @@ async function saveSong(saveAs = false) {
   }
 }
 
-async function exportFile(kind: 'gp' | 'midi') {
+async function exportFile(kind: 'gp' | 'gp5' | 'midi') {
   try {
-    const bytes = kind === 'gp' ? songBytes('gp') : exportMidi(editor.score, api.settings);
-    const type = kind === 'gp' ? GP7 : MIDI;
+    const bytes = kind === 'midi' ? exportMidi(editor.score, api.settings) : songBytes(kind);
+    const type = kind === 'gp' ? GP7 : kind === 'gp5' ? GP5 : MIDI;
     const r = await saveFile(`${baseName()}.${type.ext}`, bytes, undefined, type);
     if (r) flash(t('Exportiert: {x}', { x: r.name }));
   } catch (e: any) {
@@ -1358,7 +1602,7 @@ async function openDemo() {
 
 // ---------------- autosave / recovery ----------------
 const AUTOSAVE_KEY = '__autosave';
-interface AutosaveData { json: string; fileName: string; path?: string; format: Format; time: number; title: string }
+interface AutosaveData { json: string; arr?: Arrangement | null; fileName: string; path?: string; format: Format; time: number; title: string }
 let autosaveTimer = 0;
 
 function scheduleAutosave() {
@@ -1373,6 +1617,7 @@ async function writeAutosave() {
   if (!prefs().autosave || !editor.dirty) return;
   const data: AutosaveData = {
     json: snapshot(editor.score),
+    arr: editor.arr,
     fileName,
     path: typeof saveHandle === 'string' ? saveHandle : undefined,
     format,
@@ -1399,7 +1644,7 @@ async function showRecovery() {
   $('recRestore').onclick = () => {
     try {
       const score = restore(data.json, api.settings);
-      loadScore(score, data.fileName, { path: data.path, format: data.format, dirty: true });
+      loadScore(score, data.fileName, { path: data.path, format: data.format, dirty: true, arr: data.arr ?? null });
       flash(t('Wiederhergestellt'));
     } catch (e) {
       console.error(e);
@@ -1914,6 +2159,7 @@ function run(a: Action) {
     case 'save': void saveSong(); break;
     case 'saveas': void saveSong(true); break;
     case 'export-gp': void exportFile('gp'); break;
+    case 'export-gp5': void exportFile('gp5'); break;
     case 'export-midi': void exportFile('midi'); break;
     case 'export-wav': void exportWav(); break;
     case 'print': void doPrint(); break;

@@ -2,6 +2,7 @@
 import type * as alphaTab from '@coderline/alphatab';
 import { trackKind } from './model';
 import { icon, type IconName } from './icons';
+import { type Arrangement, PART_COLORS, starts, partOf, siblings } from './arrangement';
 
 const KIND_ICON: Record<string, IconName> = { guitar: 'guitar', bass: 'bass', drums: 'drum', synth: 'synth' };
 
@@ -11,7 +12,11 @@ export interface OverviewState {
   bar: number;
   sel: { start: number; end: number } | null; // bar range of the selection (current track)
   playingBar: number;
+  arr: Arrangement | null;
 }
+
+const BAR_W = 33; // cell width + gap
+const SEC_GAP = 8;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -27,22 +32,58 @@ function barHasNotes(bar: alphaTab.model.Bar | undefined): 'full' | 'rest' | 'em
   return rest ? 'rest' : 'empty';
 }
 
-export function renderOverview(root: HTMLElement, s: OverviewState, labels: { tracks: string; bar: (n: number) => string }) {
+function arrRow(s: OverviewState, labels: { linked: (n: number) => string; times: (n: number) => string }): string {
+  const arr = s.arr!;
+  const st = starts(arr);
+  let h = '<div class="ovRow ovArr">';
+  arr.blocks.forEach((bl, i) => {
+    const p = partOf(arr, bl);
+    const n = siblings(arr, bl).length;
+    const w = bl.len * BAR_W - 3;
+    const cur = s.bar >= st[i] && s.bar < st[i] + bl.len;
+    const tip = [p.name, n > 1 ? labels.linked(n) : '', bl.times > 1 ? labels.times(bl.times) : '', bl.comment].filter(Boolean).join(' · ');
+    h += `<div class="arBlock${cur ? ' cur' : ''}${n > 1 ? ' linked' : ''}" data-blk="${i}" style="width:${w}px;--c:${PART_COLORS[p.color % PART_COLORS.length]}${i > 0 ? `;margin-left:${SEC_GAP}px` : ''}" data-tip="${esc(tip)}">`;
+    if (n > 1 && bl.len > 2) h += `<span class="arLink">${icon('link', 11)}</span>`;
+    h += `<span class="arName">${esc(p.name)}</span>`;
+    if (bl.times > 1) h += `<span class="arTimes">×${bl.times}</span>`;
+    if (bl.comment) h += `<span class="arNote">${icon('comment', 11)}</span>`;
+    h += '</div>';
+  });
+  return h + '</div>';
+}
+
+export interface OverviewLabels {
+  tracks: string;
+  bar: (n: number) => string;
+  arrangement: string;
+  linked: (n: number) => string;
+  times: (n: number) => string;
+}
+
+export function renderOverview(root: HTMLElement, s: OverviewState, labels: OverviewLabels) {
   const bars = s.score.masterBars;
-  let head = `<div class="ovNames"><div class="ovCorner"></div>`;
+  // muted cells per track (bar index set)
+  const muted = new Set<string>();
+  if (s.arr) {
+    const st = starts(s.arr);
+    s.arr.blocks.forEach((bl, i) => {
+      for (const t of bl.muted) for (let k = 0; k < bl.len; k++) muted.add(`${t}:${st[i] + k}`);
+    });
+  }
+  let head = `<div class="ovNames">${s.arr ? `<div class="ovArrHead">${esc(labels.arrangement)}</div>` : ''}<div class="ovCorner"></div>`;
   s.score.tracks.forEach((tr, i) => {
     head += `<div class="ovName${i === s.track ? ' on' : ''}" data-t="${i}"><span class="ovIcon trackIcon ${trackKind(tr)}">${icon(KIND_ICON[trackKind(tr)] ?? 'music', 12)}</span><span class="ovLabel">${esc(tr.name)}</span></div>`;
   });
   head += '</div>';
 
-  let grid = '<div class="ovGrid"><div class="ovRow ovHead">';
+  let grid = `<div class="ovGrid${s.arr ? ' hasArr' : ''}">${s.arr ? arrRow(s, labels) : ''}<div class="ovRow ovHead">`;
   bars.forEach((mb, b) => {
     const cls = ['ovNum'];
     if (b === s.bar) cls.push('cur');
     if (b === s.playingBar) cls.push('play');
     if (mb.section && b > 0) cls.push('secStart');
     const marks = (mb.isRepeatStart ? '‖:' : '') + (mb.repeatCount > 0 ? ':‖' : '');
-    const sec = mb.section?.text ? `<span class="ovSec">${esc(mb.section.text)}</span>` : '';
+    const sec = mb.section?.text && !s.arr ? `<span class="ovSec">${esc(mb.section.text)}</span>` : '';
     grid += `<div class="${cls.join(' ')}" data-b="${b}" title="${esc(labels.bar(b + 1))}">${sec}${b + 1}${marks ? `<span class="ovRep">${marks}</span>` : ''}</div>`;
   });
   grid += '</div>';
@@ -53,6 +94,7 @@ export function renderOverview(root: HTMLElement, s: OverviewState, labels: { tr
     bars.forEach((_mb, b) => {
       const state = barHasNotes(st?.bars[b]);
       const cls = ['ovCell', kind, state];
+      if (muted.has(`${i}:${b}`)) cls.push('muted');
       if (b === s.bar) cls.push('col');
       if (b === s.playingBar) cls.push('play');
       if (i === s.track && b === s.bar) cls.push('cur');

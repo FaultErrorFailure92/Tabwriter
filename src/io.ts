@@ -21,7 +21,7 @@ function tauri(): TauriApi | null {
   return ((window as any).__TAURI__ as TauriApi) ?? null;
 }
 
-const FILTERS = [{ name: 'Guitar Pro', extensions: ['gp5', 'gp4', 'gp3', 'gp', 'gpx', 'xml', 'musicxml'] }];
+const FILTERS = [{ name: 'Songs', extensions: ['tabw', 'gp5', 'gp4', 'gp3', 'gp', 'gpx', 'xml', 'musicxml'] }];
 
 export async function pickFile(input: HTMLInputElement): Promise<OpenedFile | null> {
   const t = tauri();
@@ -54,6 +54,7 @@ export interface FileType {
 export const GP7: FileType = { desc: 'Guitar Pro 7', ext: 'gp', mime: 'application/octet-stream' };
 export const MIDI: FileType = { desc: 'MIDI', ext: 'mid', mime: 'audio/midi' };
 export const GP5: FileType = { desc: 'Guitar Pro 5', ext: 'gp5', mime: 'application/octet-stream' };
+export const TABW: FileType = { desc: 'Tabwriter', ext: 'tabw', mime: 'application/json' };
 export const WAV: FileType = { desc: 'WAV Audio', ext: 'wav', mime: 'audio/wav' };
 
 export interface SaveResult {

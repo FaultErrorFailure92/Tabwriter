@@ -956,3 +956,35 @@ body.ovResizing { cursor: ns-resize; }
 .ovCell.secStart { margin-left: 8px; }
 .ovNum.secStart { margin-left: 8px; }
 .ovCell:hover { transform: scale(1.06); }
+
+/* arrangement row */
+.ovArrHead {
+  height: 30px; margin-bottom: 4px; padding: 0 6px; display: flex; align-items: center;
+  font-size: 11px; font-weight: 600; color: var(--label2);
+}
+.ovRow.ovArr { margin-top: 0; }
+.arBlock {
+  flex: none; box-sizing: border-box; height: 26px; margin-right: 3px; padding: 0 8px; border-radius: 7px;
+  display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap; position: relative;
+  font-size: 11.5px; font-weight: 600; color: var(--c); cursor: grab;
+  background: color-mix(in srgb, var(--c) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 32%, transparent);
+  transition: background .12s, opacity .12s;
+}
+.arBlock:hover { background: color-mix(in srgb, var(--c) 22%, transparent); }
+.arBlock.cur { background: color-mix(in srgb, var(--c) 26%, transparent); box-shadow: inset 0 0 0 1.5px var(--c); }
+.arBlock .arName { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.arBlock .arLink, .arBlock .arNote { display: flex; flex: none; opacity: .85; }
+.arBlock .arTimes { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; opacity: .85; }
+.arBlock.dragging { opacity: .35; cursor: grabbing; }
+.arBlock.dropL::before, .arBlock.dropR::after {
+  content: ''; position: absolute; top: 2px; bottom: 2px; width: 3px; border-radius: 2px; background: var(--accent);
+}
+.arBlock.dropL::before { left: 0; }
+.arBlock.dropR::after { right: 0; }
+body.arDragging, body.arDragging * { cursor: grabbing !important; }
+.ovCell.muted {
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--sep-strong) 4px 5px) !important;
+  box-shadow: inset 0 0 0 1px var(--sep) !important;
+}
+#arrBtn.on { color: var(--accent); }

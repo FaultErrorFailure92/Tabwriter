@@ -50,6 +50,15 @@
     "fileAssociations": [
       {
         "ext": [
+          "tabw"
+        ],
+        "name": "Tabwriter",
+        "description": "Tabwriter Song",
+        "role": "Editor",
+        "mimeType": "application/json"
+      },
+      {
+        "ext": [
           "gp5"
         ],
         "name": "Guitar Pro 5",

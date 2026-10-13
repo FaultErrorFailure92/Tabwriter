@@ -6,6 +6,7 @@ import {
   DRUM_LANES, newBar, newBeat, newMasterBar, addTrack, rebuild, snapshot, restore,
   beatTicks, barTicks, voiceTicks,
 } from './model';
+import * as A from './arrangement';
 
 const m = alphaTab.model;
 const DURATIONS = [1, 2, 4, 8, 16, 32, 64];
@@ -28,13 +29,19 @@ export class Editor {
   private lastDigit: { time: number; key: string; value: number } | null = null;
   onChange: (structural: boolean) => void = () => {};
   dirty = false;
+  /** arrangement (blocks/parts); null = plain linear song */
+  arr: A.Arrangement | null = null;
+  private sync = A.newSyncState();
+  private preBar = 0;
 
   constructor(score: Score, private settings: alphaTab.Settings) {
     this.score = rebuild(score, settings);
   }
 
-  setScore(score: Score) {
+  setScore(score: Score, arr: A.Arrangement | null = null) {
     this.score = rebuild(score, this.settings);
+    this.arr = arr;
+    if (arr) A.rememberHashes(JSON.parse(snapshot(this.score)), arr, this.sync);
     this.cursor = { track: 0, bar: 0, beat: 0, row: 0 };
     this.selAnchor = null;
     this.undoStack = [];
@@ -83,8 +90,20 @@ export class Editor {
   }
 
   // ---------- undo ----------
+  private snap(): string {
+    return JSON.stringify({ s: snapshot(this.score), a: this.arr });
+  }
+
+  private unsnap(str: string) {
+    const d = JSON.parse(str) as { s: string; a: A.Arrangement | null };
+    this.score = restore(d.s, this.settings);
+    this.arr = d.a;
+    if (this.arr) A.rememberHashes(JSON.parse(d.s), this.arr, this.sync);
+  }
+
   private begin() {
-    this.undoStack.push(snapshot(this.score));
+    this.preBar = this.cursor.bar;
+    this.undoStack.push(this.snap());
     if (this.undoStack.length > 200) this.undoStack.shift();
     this.redoStack = [];
   }
@@ -99,7 +118,12 @@ export class Editor {
 
   private commit(structural = false) {
     if (this.pendingHammer.size) this.forEachNote((n) => { if (this.pendingHammer.has(n.id)) n.isHammerPullOrigin = true; });
-    this.score = rebuild(this.score, this.settings);
+    if (this.arr) {
+      const o = JSON.parse(snapshot(this.score));
+      A.sync(o, this.arr, this.sync, this.preBar, this.cursor.bar);
+      this.score = restore(JSON.stringify(o), this.settings);
+    } else this.score = rebuild(this.score, this.settings);
+    this.preBar = this.cursor.bar;
     if (this.pendingHammer.size) {
       const alive = new Set<number>();
       this.forEachNote((n) => { if (this.pendingHammer.has(n.id) && !n.isHammerPullOrigin) alive.add(n.id); });
@@ -113,8 +137,8 @@ export class Editor {
   undo() {
     const s = this.undoStack.pop();
     if (!s) return;
-    this.redoStack.push(snapshot(this.score));
-    this.score = restore(s, this.settings);
+    this.redoStack.push(this.snap());
+    this.unsnap(s);
     this.selAnchor = null;
     this.clamp();
     this.onChange(true);
@@ -123,8 +147,8 @@ export class Editor {
   redo() {
     const s = this.redoStack.pop();
     if (!s) return;
-    this.undoStack.push(snapshot(this.score));
-    this.score = restore(s, this.settings);
+    this.undoStack.push(this.snap());
+    this.unsnap(s);
     this.selAnchor = null;
     this.clamp();
     this.onChange(true);
@@ -315,7 +339,8 @@ export class Editor {
     this.commit(true);
   }
 
-  setSection(text: string, bar = this.cursor.bar) {
+  setSection(text: string, bar = this.cursor.bar): string | null {
+    if (this.arr) return this.arrSection(text, bar);
     this.begin();
     const mb = this.score.masterBars[bar];
     if (text.trim()) {
@@ -327,6 +352,7 @@ export class Editor {
       mb.section = null;
     }
     this.commit(true);
+    return null;
   }
 
   /** replace targets (Segno, Coda, Fine …) or jumps (D.C., D.S. …) of the current bar */
@@ -928,6 +954,7 @@ export class Editor {
     this.begin();
     this.score.tracks.splice(i, 1);
     this.score.tracks.forEach((t, k) => (t.index = k));
+    if (this.arr) A.trackRemoved(this.arr, i);
     if (this.cursor.track >= this.score.tracks.length) this.cursor.track = this.score.tracks.length - 1;
     this.commit(true);
   }
@@ -1020,6 +1047,53 @@ export class Editor {
     this.begin();
     this.score.title = title;
     this.commit(true);
+  }
+
+  // ---------- arrangement ----------
+  /** run an arrangement operation on the JSON form of the score (undoable) */
+  arrOp(fn: (o: any, arr: A.Arrangement) => void) {
+    if (!this.arr) return;
+    this.begin();
+    const o = JSON.parse(snapshot(this.score));
+    fn(o, this.arr);
+    A.rememberHashes(o, this.arr, this.sync);
+    A.sync(o, this.arr, this.sync, this.cursor.bar, this.cursor.bar);
+    this.score = restore(JSON.stringify(o), this.settings);
+    this.preBar = this.cursor.bar;
+    this.dirty = true;
+    this.clamp();
+    this.onChange(true);
+  }
+
+  enableArrangement(on: boolean) {
+    if (on === !!this.arr) return;
+    this.begin();
+    if (on) {
+      const o = JSON.parse(snapshot(this.score));
+      this.arr = A.fromSections(o);
+      A.rememberHashes(o, this.arr, this.sync);
+      A.sync(o, this.arr, this.sync, 0, 0);
+      this.score = restore(JSON.stringify(o), this.settings);
+    } else this.arr = null;
+    this.dirty = true;
+    this.clamp();
+    this.onChange(true);
+  }
+
+  /** section name with arrangement: rename the part at a block start, else split the block */
+  private arrSection(text: string, bar: number): string | null {
+    const arr = this.arr!;
+    const i = A.blockAt(arr, bar);
+    const st = A.starts(arr)[i];
+    const name = text.trim();
+    if (!name) return t('Teile lassen sich in der Arrangement-Zeile löschen');
+    if (st === bar) {
+      this.arrOp((_o, a) => (A.partOf(a, a.blocks[i]).name = name));
+      return null;
+    }
+    if (A.siblings(arr, arr.blocks[i]).length > 1) return t('Verknüpfte Teile lassen sich nicht teilen – zuerst „Kopie lösen“');
+    this.arrOp((o, a) => A.split(o, a, i, bar, name));
+    return null;
   }
 
   mutate(fn: (s: Score) => void, structural = true) {

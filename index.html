@@ -117,6 +117,7 @@
       <button data-act="save"><i data-icon="save"></i><span>Speichern</span><kbd>⌘S</kbd></button>
       <button data-act="saveas"><i data-icon="doc"></i><span>Speichern unter …</span><kbd>⇧⌘S</kbd></button>
       <hr />
+      <button data-act="export-gp5"><i data-icon="share"></i><span>Als Guitar Pro 5 exportieren …</span></button>
       <button data-act="export-gp"><i data-icon="share"></i><span>Als Guitar Pro 7 exportieren …</span></button>
       <button data-act="export-midi"><i data-icon="pianokeys"></i><span>Als MIDI exportieren …</span></button>
       <button data-act="export-wav"><i data-icon="waveform"></i><span>Als Audio exportieren …</span></button>
@@ -170,6 +171,8 @@
       <div class="ovTop">
         <span class="ovTitle">Übersicht</span>
         <span class="spacer"></span>
+        <button id="arrAdd" class="tbtn small hidden" title="Neuer Teil nach dem aktuellen"><i data-icon="plus"></i></button>
+        <button id="arrBtn" class="tbtn small" title="Arrangement: Teile als Blöcke, verknüpfte Kopien"><i data-icon="blocks"></i></button>
         <button id="ovClose" class="tbtn small" title="Übersicht schließen" data-key="⌘B"><i data-icon="xmark" data-size="12"></i></button>
       </div>
       <div id="ovContent" class="ovBody"></div>
@@ -417,7 +420,7 @@
       </form>
     </div>
 
-    <input id="fileInput" type="file" accept=".gp5,.gp4,.gp3,.gp,.gpx,.xml,.musicxml" hidden />
+    <input id="fileInput" type="file" accept=".tabw,.gp5,.gp4,.gp3,.gp,.gpx,.xml,.musicxml" hidden />
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

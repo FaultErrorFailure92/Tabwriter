@@ -53,6 +53,13 @@ export const ICONS = {
   barIcon: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.6"/><path d="M8 3v10M2.2 6.3h11.6M2.2 9.7h11.6" stroke-width="1"/>',
   repeat: '<path d="M4 3v10M6 3v10" /><circle cx="9" cy="6.4" r=".8" fill="currentColor" stroke="none"/><circle cx="9" cy="9.6" r=".8" fill="currentColor" stroke="none"/>',
   select: '<rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1.6" stroke-dasharray="2 1.6"/>',
+  link: '<path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 0 0-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.8-.8"/>',
+  unlink: '<path d="M10.2 8.6l2.6-2.6a2.6 2.6 0 0 0-3.7-3.7L8.3 3.1M5.8 7.4 3.2 10a2.6 2.6 0 0 0 3.7 3.7l.8-.8M2.4 2.4l11.2 11.2"/>',
+  comment: '<path d="M2.6 4c0-.8.6-1.4 1.4-1.4h8c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H7.2L4.4 13.4V11H4c-.8 0-1.4-.6-1.4-1.4z"/>',
+  blocks: '<rect x="1.8" y="4.6" width="3.6" height="6.8" rx="1"/><rect x="6.2" y="4.6" width="3.6" height="6.8" rx="1"/><rect x="10.6" y="4.6" width="3.6" height="6.8" rx="1"/>',
+  duplicate: '<rect x="5" y="5" width="8.4" height="8.4" rx="1.6"/><path d="M3.4 10.6h-.2c-.8 0-1.4-.6-1.4-1.4V3.2c0-.8.6-1.4 1.4-1.4h6c.8 0 1.4.6 1.4 1.4v.2"/>',
+  arrowLeft: '<path d="M13 8H3.4M7.2 4.2 3.4 8l3.8 3.8"/>',
+  arrowRight: '<path d="M3 8h9.6M8.8 4.2 12.6 8l-3.8 3.8"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
 };
 
