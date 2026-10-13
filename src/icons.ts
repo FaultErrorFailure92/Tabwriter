@@ -66,6 +66,8 @@ export const ICONS = {
   people: '<circle cx="6" cy="5.4" r="2.3"/><path d="M1.8 13.4c.3-2.4 2-3.8 4.2-3.8s3.9 1.4 4.2 3.8"/><circle cx="11.3" cy="5.9" r="1.8"/><path d="M11 9.6c1.9 0 3 1.2 3.3 3.4"/>',
   leadSheet: '<rect x="2.6" y="1.8" width="10.8" height="12.4" rx="1.6"/><path d="M5 5h2.4M9.4 5H11M5 7.4h6M5 10h2.4M9.4 10H11M5 12.2h6" stroke-width="1.1"/>',
   stagePlan: '<rect x="1.8" y="2.6" width="12.4" height="8.4" rx="1.4"/><circle cx="5.4" cy="6.4" r="1.2"/><circle cx="10.6" cy="6.4" r="1.2"/><path d="M4 13.6h8"/>',
+  warning: '<path d="M8 2.2 14.2 13H1.8z" stroke-linejoin="round"/><path d="M8 6.4v3.2"/><circle cx="8" cy="11.3" r=".7" fill="currentColor" stroke="none"/>',
+  route: '<circle cx="3.6" cy="12.4" r="1.6"/><circle cx="12.4" cy="3.6" r="1.6"/><path d="M5.2 12.4h4.6a2.2 2.2 0 0 0 0-4.4H6.2a2.2 2.2 0 0 1 0-4.4h4.6"/>',
   checkmark: '<path d="M3.4 8.4 6.6 11.4 12.6 4.6"/>',
   house: '<path d="M2.4 7.6 8 2.8l5.6 4.8"/><path d="M3.8 6.6v6.6h3V9.8h2.4v3.4h3V6.6"/>',
   mic: '<rect x="5.8" y="1.8" width="4.4" height="7.6" rx="2.2"/><path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2"/>',

@@ -263,6 +263,54 @@ await test('Gig wizard and presale tab', async () => {
   eq(r, [1, 5], 'one gig, five tiles');
 });
 
+await test('Tour: new tour from a gig, filter with totals', async () => {
+  await bandWizard('Testband', [['A', 'b4']]);
+  await page.keyboard.press('Meta+5');
+  for (const v of ['Club', 'Halle']) {
+    await page.click('.pageHead .btn.primary');
+    await page.fill('.wizBody input[type=text]', v);
+    await page.keyboard.press('Enter');
+    await page.click('.wizFoot .btn.primary');
+  }
+  const tourSel = page.locator('label.gigField:has(> span:text-is("Tour")) select');
+  await tourSel.selectOption({ label: 'Neue Tour …' });
+  await page.fill('.wizBody input', 'Frühjahr');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForSelector('.tourFilter');
+  await page.selectOption('.tourFilter', { label: 'Frühjahr' });
+  const r = await page.evaluate(() => [document.querySelectorAll('#band .bandItem').length, document.querySelector('.tourSum b')?.textContent, document.querySelector('.tourStats b')?.textContent]);
+  eq(r, [1, 'Frühjahr', '1'], 'one gig in tour');
+});
+
+await test('Setlist target warning and rehearsal in the calendar', async () => {
+  const r = await page.evaluate(async () => {
+    const M = await import('/src/band/model.ts');
+    const G = await import('/src/band/gigextra.ts');
+    const b = M.newBand('Testband');
+    const s = M.newSong('A');
+    s.duration = 600;
+    b.songs.push(s);
+    const l = M.newSetlist('Set');
+    l.items = [{ id: 'i', type: 'song', song: s.id, note: '' }];
+    const st = (x) => { l.target = x; return M.targetState(b, l).state; };
+    b.rehearsals.push({ id: 'r1', date: '2030-05-02', from: '19:00', to: '22:00', place: 'Proberaum', songs: [s.id], lineup: [], note: '' });
+    const ics = G.icsFor(b, [], 'X', b.rehearsals);
+    return [st(600), st(480), st(760), st(0), /DTSTART:20300502T190000/.test(ics) && /DTEND:20300502T220000/.test(ics) && ics.includes('LOCATION:Proberaum')];
+  });
+  eq(r, ['', 'long', 'short', '', true], 'target states, ics');
+  await bandWizard('Testband', [['A', 'b4']]);
+  await page.keyboard.press('Meta+5');
+  await page.click('.pageHead .seg.tabs button:nth-child(2)');
+  await page.click('.calDay.today');
+  await page.fill('.wizBody input[type=text]', 'Proberaum');
+  await page.click('.wizFoot .btn.primary');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForSelector('.calGig.reh');
+  await page.click('.bandNav:has-text("Übersicht")');
+  const home = await page.evaluate(() => document.querySelector('.homeGrid .gigSec')?.textContent ?? '');
+  eq([home.includes('Probe'), home.includes('Proberaum')], [true, true], 'rehearsal on the overview');
+});
+
 await test('Navigation: overview from every page, back to the editor', async () => {
   await bandWizard('Testband', [['A', 'b4']]);
   await page.evaluate(() => window.app.run('demo'));

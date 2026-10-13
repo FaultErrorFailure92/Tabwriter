@@ -8,6 +8,8 @@ import { openPrintDialog } from '../print';
 import { renderStage } from './stage';
 import { riderPrintItems } from './rider';
 import { crewCard, gigCrewCard, renderDocs, renderCalendar, downloadIcs, awayOn } from './gigextra';
+import { rehearsalWizard, nextRehearsal } from './rehearsal';
+import { tourWizard, tourOptions, tourSummary, tourOf, NEW_TOUR } from './tour';
 import { renderTickets, printDoorList, importExcel } from './tickets';
 import { renderSongIdeas, collectAudio, restoreAudio, syllables, audioKey, audioDuration } from './ideas';
 import { INSTRUMENTS, instrumentOf, gearIcon, guessInstruments, type InstrumentPreset } from './catalog';
@@ -22,7 +24,7 @@ import {
   type Band, type Gig, type Setlist, type SetItem, type Member, type GearItem, type Todo, type TodoStatus,
   type Song, type SetCol, SET_COLS, TUNINGS, LINK_KINDS, newTodo, newSound, todoStatus,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
-  setlistDuration, fmtDur, ticketTotals,
+  setlistDuration, fmtDur, ticketTotals, targetState, parseDur,
 } from './model';
 
 export const STAGECRAFT: FileType = { desc: 'Stagecraft', ext: 'stagecraft', mime: 'application/json' };
@@ -355,7 +357,13 @@ function renderHome(main: HTMLElement) {
   // next gig
   const now = today();
   const next = band.gigs.filter((g) => g.date >= now).sort((a, z) => a.date.localeCompare(z.date))[0];
-  const c1 = card(grid, t('Nächster Gig'));
+  const reh = nextRehearsal(band, now);
+  const c1 = card(grid, reh ? t('Als Nächstes') : t('Nächster Gig'));
+  if (reh) {
+    const r = el('div', 'linkRow', `<b>${esc(t('Probe'))}</b><span>${esc(fmtDate(reh.date))}${reh.from ? ' · ' + esc(reh.from) : ''}${reh.place ? ' · ' + esc(reh.place) : ''}</span>${reh.songs.length ? `<span>${esc(reh.songs.map((id) => band.songs.find((x) => x.id === id)?.title).filter(Boolean).join(', '))}</span>` : ''}`);
+    r.onclick = () => void rehearsalWizard(ctx(), reh);
+    c1.appendChild(r);
+  }
   if (next) {
     const tk = ticketTotals(next.tickets);
     const r = el('div', 'linkRow', `<b>${esc(next.title || next.venue || t('Gig'))}</b><span>${esc(fmtDate(next.date))}${next.venue ? ' · ' + esc(next.venue) : ''}</span>${tk.sold ? `<span>${esc(t('{n} Karten verkauft', { n: tk.sold }))}</span>` : ''}`);
@@ -1090,13 +1098,22 @@ function renderBoard(main: HTMLElement) {
 
 // ---------------- setlists ----------------
 
+/** "⚠ 25 % zu lang" badge when a setlist is more than 20 % off its planned time */
+function targetWarn(l: Setlist, long = false): string {
+  const { state, pct } = targetState(band, l);
+  if (!state) return '';
+  const msg = state === 'long' ? t('{n} % zu lang', { n: pct }) : t('{n} % zu kurz', { n: -pct });
+  const tip = t('Vorgabe {x}, geplant {y}', { x: fmtDur(l.target!), y: fmtDur(setlistDuration(band, l)) });
+  return `<span class="setWarn ${state}" data-tip="${esc(tip)}">${icon('warning', 12)}${long ? `<span>${esc(msg)}</span>` : ''}</span>`;
+}
+
 function renderSetlists(main: HTMLElement) {
   pageHead(main, { title: t('Setlists'), primary: { label: t('Setlist'), tip: t('Setlist anlegen'), fn: () => void setlistWizard() } });
   if (!band.setlists.length) return emptyState(main, t('Noch keine Setlists.'));
   if (!band.setlists.some((l) => l.id === selList)) selList = band.setlists[0].id;
   const [list, sp] = split(main);
   for (const l of band.setlists) {
-    listItem(list, l.id === selList, esc(l.name || t('Ohne Namen')), esc(t('{n} Einträge · {d}', { n: l.items.length, d: fmtDur(setlistDuration(band, l)) })), () => {
+    listItem(list, l.id === selList, esc(l.name || t('Ohne Namen')) + targetWarn(l), esc(t('{n} Einträge · {d}', { n: l.items.length, d: fmtDur(setlistDuration(band, l)) }) + (l.target ? ' / ' + fmtDur(l.target) : '')), () => {
       selList = l.id;
       render();
     });
@@ -1109,9 +1126,9 @@ function setlistDetail(l: Setlist): HTMLElement {
   detailHead(d, {
     title: titleInput(l, 'name', t('Name der Setlist'), () => {
       const it = root.querySelector('.bandItem.on .t');
-      if (it) it.textContent = l.name || t('Ohne Namen');
+      if (it) it.innerHTML = esc(l.name || t('Ohne Namen')) + targetWarn(l);
     }),
-    meta: fmtDur(setlistDuration(band, l)),
+    meta: fmtDur(setlistDuration(band, l)) + (l.target ? ' / ' + fmtDur(l.target) : ''),
     menu: () => [
       { icon: 'printer', label: t('Für die Bühne drucken / PDF'), hint: t('groß'), fn: () => printSetlist(l, true) },
       { icon: 'list', label: t('Mit Details drucken / PDF'), fn: () => printSetlist(l, false) },
@@ -1159,9 +1176,16 @@ function setlistDetail(l: Setlist): HTMLElement {
   let n = 0;
   const upd = () => {
     const m = root.querySelector('.dHead .dMeta');
-    if (m) m.textContent = fmtDur(setlistDuration(band, l));
+    if (m) m.textContent = fmtDur(setlistDuration(band, l)) + (l.target ? ' / ' + fmtDur(l.target) : '');
     const tt = root.querySelector('.setTotal b');
     if (tt) tt.textContent = fmtDur(setlistDuration(band, l));
+    const w = root.querySelector('.setTotal .warnSlot');
+    if (w) w.innerHTML = targetWarn(l, true);
+    const it = root.querySelector('.bandItem.on');
+    if (it) {
+      it.querySelector('.t')!.innerHTML = esc(l.name || t('Ohne Namen')) + targetWarn(l);
+      it.querySelector('.s')!.textContent = t('{n} Einträge · {d}', { n: l.items.length, d: fmtDur(setlistDuration(band, l)) }) + (l.target ? ' / ' + fmtDur(l.target) : '');
+    }
   };
   l.items.forEach((it, i) => {
     const r = el('div', 'setRow ' + it.type);
@@ -1214,7 +1238,24 @@ function setlistDetail(l: Setlist): HTMLElement {
   for (const x of TUNINGS) tl.appendChild(Object.assign(el('option'), { value: x }));
   c.appendChild(tl);
   if (!l.items.length) items.appendChild(el('div', 'setEmpty', esc(band.songs.length ? t('Songs von rechts hierher ziehen oder anklicken.') : t('Noch keine Songs in der Band. Lege sie unter „Songs“ an.'))));
-  c.appendChild(el('div', 'setTotal', `<span>${esc(t('{n} Songs', { n }))}</span><b>${fmtDur(setlistDuration(band, l))}</b>`));
+  const tot = el('div', 'setTotal', `<span>${esc(t('{n} Songs', { n }))}</span><span class="spacer"></span><span class="warnSlot">${targetWarn(l, true)}</span>`);
+  const tg = el('input', 'pInput target');
+  tg.placeholder = '45:00';
+  tg.value = l.target ? fmtDur(l.target) : '';
+  tg.dataset.tip = t('Geplante Spielzeit, z.B. 45:00 – bei mehr als 20 % Abweichung gibt es eine Warnung');
+  tg.onchange = () => {
+    const v = parseDur(/^\d+$/.test(tg.value.trim()) ? tg.value.trim() + ':00' : tg.value);
+    if (v === null) { tg.value = l.target ? fmtDur(l.target) : ''; return; }
+    l.target = v || undefined;
+    tg.value = v ? fmtDur(v) : '';
+    save();
+    upd();
+  };
+  const tl2 = el('label', 'targetBox', `<span>${esc(t('Vorgabe'))}</span>`);
+  tl2.appendChild(tg);
+  tot.appendChild(tl2);
+  tot.appendChild(el('b', '', fmtDur(setlistDuration(band, l))));
+  c.appendChild(tot);
 
   // song shelf: drag into the running order (or click = append)
   const used = new Set(l.items.map((it) => (it.type === 'song' ? it.song : '')));
@@ -1374,28 +1415,53 @@ function gigLabel(g: Gig) {
 }
 
 let gigView: 'list' | 'cal' = 'list';
+let gigTour = ''; // '' = all, '\u0000' = without tour, else Tour.id
+
+/** tour select for a gig; "Neue Tour …" runs the tour wizard */
+function tourSelect(g: { tour?: string }, after: () => void): HTMLSelectElement {
+  const sel = select(tourOptions(band), g.tour ?? '', async (v) => {
+    if (v === NEW_TOUR) {
+      const tr = await tourWizard(band);
+      if (tr) g.tour = tr.id;
+    } else g.tour = v;
+    save();
+    after();
+  });
+  return sel;
+}
 
 function renderGigs(main: HTMLElement) {
-  const exp = iconBtn('calendar', t('Alle Gigs als Kalender (.ics)'), () => void downloadIcs(band, band.gigs, `${band.name} Gigs`, (m) => host.flash(m)), 'tbtn');
+  const exp = iconBtn('calendar', band.rehearsals.length ? t('Alle Gigs und Proben als Kalender (.ics)') : t('Alle Gigs als Kalender (.ics)'), () => void downloadIcs(band, band.gigs, `${band.name} Gigs`, (m) => host.flash(m), band.rehearsals), 'tbtn');
   pageHead(main, {
     title: t('Gigs'),
     tabs: tabs<'list' | 'cal'>([['list', t('Liste')], ['cal', t('Kalender')]], gigView, (k) => { gigView = k; render(); }),
-    actions: band.gigs.length ? [exp] : [],
+    actions: band.gigs.length || band.rehearsals.length ? [exp] : [],
     primary: { label: t('Gig'), tip: t('Gig anlegen'), fn: () => void gigWizard() },
   });
   if (gigView === 'cal') return renderCalendar(main, ctx(), (id) => { selGig = id; gigView = 'list'; render(); });
   if (!band.gigs.length) return emptyState(main, t('Noch keine Gigs.'));
-  if (!band.gigs.some((g) => g.id === selGig)) selGig = band.gigs[0].id;
+  if (gigTour && gigTour !== '\u0000' && !band.tours.some((x) => x.id === gigTour)) gigTour = '';
+  const shown = band.gigs.filter((g) => !gigTour || (gigTour === '\u0000' ? !g.tour : g.tour === gigTour));
+  if (!shown.some((g) => g.id === selGig)) selGig = (shown[0] ?? band.gigs[0]).id;
   const now = today();
-  const sorted = [...band.gigs].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
+  const sorted = [...shown].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
   const upcoming = sorted.filter((g) => !g.date || g.date >= now);
   const past = sorted.filter((g) => g.date && g.date < now).reverse();
   const [list, sp] = split(main);
+  if (band.tours.length) {
+    const f = select([['', t('Alle Gigs')], ...band.tours.map((x) => [x.id, x.name] as [string, string]), ['\u0000', t('Ohne Tour')]], gigTour, (v) => { gigTour = v; render(); });
+    f.classList.add('tourFilter');
+    list.appendChild(f);
+    const tr = band.tours.find((x) => x.id === gigTour);
+    if (tr) list.appendChild(tourSummary(band, tr, render, (m) => host.confirm(m), () => { gigTour = ''; render(); }));
+  }
+  if (!shown.length) list.appendChild(el('div', 'hint pad', esc(t('Keine Gigs in dieser Auswahl.'))));
   const group = (title: string, gigs: Gig[]) => {
     if (!gigs.length) return;
     list.appendChild(el('div', 'bandGroup', esc(title)));
     for (const g of gigs) {
-      listItem(list, g.id === selGig, esc(gigLabel(g)) + moneyBadge(g), esc(fmtDate(g.date)) + (g.venue && g.title ? ' · ' + esc(g.venue) : '') + presaleInfo(g), () => {
+      const tr = !gigTour ? tourOf(band, g) : undefined;
+      listItem(list, g.id === selGig, esc(gigLabel(g)) + moneyBadge(g), esc(fmtDate(g.date)) + (g.venue && g.title ? ' · ' + esc(g.venue) : '') + presaleInfo(g) + (tr ? ` · <span class="tourTag">${icon('route', 10)}${esc(tr.name)}</span>` : ''), () => {
         selGig = g.id;
         render();
       }, g.date && g.date < now ? 'past' : '');
@@ -1404,7 +1470,7 @@ function renderGigs(main: HTMLElement) {
   group(t('Kommend'), upcoming);
   group(t('Vergangen'), past);
   const years = new Map<string, { fee: number; open: number }>();
-  for (const g of band.gigs) {
+  for (const g of gigTour ? [] : band.gigs) {
     if (!g.money.fee || !g.date) continue;
     const y = g.date.slice(0, 4);
     const v = years.get(y) ?? { fee: 0, open: 0 };
@@ -1434,7 +1500,8 @@ function gigDetail(g: Gig): HTMLElement {
     const it = root.querySelector('.bandItem.on');
     if (!it) return;
     it.querySelector('.t')!.innerHTML = esc(gigLabel(g)) + moneyBadge(g);
-    it.querySelector('.s')!.innerHTML = esc(fmtDate(g.date)) + (g.venue && g.title ? ' · ' + esc(g.venue) : '') + presaleInfo(g);
+    const tr = !gigTour ? tourOf(band, g) : undefined;
+    it.querySelector('.s')!.innerHTML = esc(fmtDate(g.date)) + (g.venue && g.title ? ' · ' + esc(g.venue) : '') + presaleInfo(g) + (tr ? ` · <span class="tourTag">${icon('route', 10)}${esc(tr.name)}</span>` : '');
   };
   detailHead(d, {
     title: titleInput(g, 'title', g.venue || t('Titel, z.B. Release-Show'), refreshItem),
@@ -1485,6 +1552,7 @@ function renderPlan(d: HTMLElement, g: Gig, refreshItem: () => void) {
   }, 'pInput', 'date'));
   row(s1, t('Venue'), input(g, 'venue', t('Name des Clubs'), refreshItem));
   row(s1, t('Adresse'), input(g, 'address', t('Straße, Ort')));
+  row(s1, t('Tour'), tourSelect(g, render));
 
   const s2 = card(left, t('Zeitplan'), { addTip: t('Zeitpunkt hinzufügen'), add: () => { g.schedule.push({ id: uid('t'), label: '', time: '' }); save(); render(); } });
   if (!g.schedule.length) hint(s2, t('z.B. Get-in, Soundcheck, Show'));
@@ -1507,6 +1575,7 @@ function renderPlan(d: HTMLElement, g: Gig, refreshItem: () => void) {
     save();
     render();
   }), goSl);
+  if (sl && targetState(band, sl).state) s3.appendChild(el('div', 'setWarnRow', targetWarn(sl, true)));
   const lineup = el('div', 'lineup');
   const away = g.date ? awayOn(band, g.date) : [];
   for (const m of band.members) {
@@ -1815,9 +1884,9 @@ async function songWizard() {
 }
 
 async function setlistWizard() {
-  const r = await wizard<{ name: string; songs: string[]; base: string }>({
+  const r = await wizard<{ name: string; songs: string[]; base: string; target: string }>({
     title: t('Setlist'),
-    state: { name: '', songs: [], base: '' },
+    state: { name: '', songs: [], base: '', target: '' },
     finish: t('Anlegen'),
     steps: [
       {
@@ -1826,6 +1895,8 @@ async function setlistWizard() {
         body: (box, s, redraw) => {
           const nm = wizInput(s.name, t('z.B. Clubshow 45 min'), (v) => { s.name = v; redraw(); });
           wizField(box, t('Name'), nm);
+          const tg = wizInput(s.target, t('optional, z.B. 45 oder 1:30:00'), (v) => (s.target = v));
+          wizField(box, t('Spielzeit (Minuten)'), tg);
           if (!band.setlists.length) return;
           wizField(box, t('Vorlage'), select([['', t('Leer – Songs auswählen')], ...band.setlists.map((x) => [x.id, t('Auf Basis von „{x}“', { x: x.name || t('Ohne Namen') })] as [string, string])], s.base, (v) => {
             s.base = v;
@@ -1833,6 +1904,10 @@ async function setlistWizard() {
             if (bl && !s.name.trim()) {
               s.name = `${bl.name} (${t('Variante')})`;
               nm.value = s.name;
+            }
+            if (bl?.target && !s.target.trim()) {
+              s.target = fmtDur(bl.target);
+              tg.value = s.target;
             }
             redraw();
           }));
@@ -1868,6 +1943,9 @@ async function setlistWizard() {
   });
   if (!r) return;
   const l = newSetlist(r.name.trim());
+  const tv = r.target.trim();
+  const target = parseDur(/^\d+$/.test(tv) ? tv + ':00' : tv);
+  if (target) l.target = target;
   const base = band.setlists.find((x) => x.id === r.base);
   if (base) {
     l.items = JSON.parse(JSON.stringify(base.items)).map((it: SetItem) => ({ ...it, id: uid('i') }));
@@ -1880,9 +1958,9 @@ async function setlistWizard() {
 }
 
 async function gigWizard() {
-  const r = await wizard<{ date: string; title: string; venue: string; setlist: string; lineup: string[] }>({
+  const r = await wizard<{ date: string; title: string; venue: string; setlist: string; lineup: string[]; tour: string }>({
     title: t('Gig'),
-    state: { date: today(), title: '', venue: '', setlist: band.setlists[0]?.id ?? '', lineup: band.members.map((m) => m.id) },
+    state: { date: today(), title: '', venue: '', setlist: band.setlists[0]?.id ?? '', lineup: band.members.map((m) => m.id), tour: band.tours.some((x) => x.id === gigTour) ? gigTour : '' },
     finish: t('Anlegen'),
     steps: [
       {
@@ -1892,6 +1970,7 @@ async function gigWizard() {
           wizField(box, t('Datum'), wizInput(s.date, '', (v) => { s.date = v; redraw(); }, 'date'));
           wizField(box, t('Venue'), wizInput(s.venue, t('Name des Clubs'), (v) => (s.venue = v)));
           wizField(box, t('Titel'), wizInput(s.title, t('optional, z.B. Release-Show'), (v) => (s.title = v)));
+          if (band.tours.length) wizField(box, t('Tour'), select(tourOptions(band).filter(([k]) => k !== NEW_TOUR), s.tour, (v) => (s.tour = v)));
         },
       },
       {
@@ -1927,6 +2006,7 @@ async function gigWizard() {
   g.venue = r.venue.trim();
   g.setlist = r.setlist;
   g.lineup = r.lineup;
+  if (r.tour) g.tour = r.tour;
   band.gigs.push(g);
   selGig = g.id;
   gigSub = 'plan';

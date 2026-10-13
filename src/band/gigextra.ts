@@ -5,8 +5,9 @@ import { dbGet, dbPut, dbDelete } from '../library';
 import { saveFile } from '../io';
 import { el, esc, input, select, iconBtn, save } from './dom';
 import { card, hint, popMenu, wizard, wizField, wizInput, type MenuItem } from './kit';
-import { type Band, type Gig, type Crew, type DocKind, type GigDoc, CREW_ROLES, CREW_TASKS, newCrew, uid } from './model';
+import { type Band, type Gig, type Rehearsal, type Crew, type DocKind, type GigDoc, CREW_ROLES, CREW_TASKS, newCrew, uid } from './model';
 import { audioKey } from './ideas';
+import { rehearsalWizard } from './rehearsal';
 
 type Ctx = { b: Band; rerender: () => void; confirm: (m: string) => Promise<boolean>; flash: (m: string) => void };
 
@@ -289,7 +290,7 @@ function dropFiles(box: HTMLElement, fn: (f: File[]) => void) {
 // ---------------- calendar ----------------
 
 let month = new Date().toISOString().slice(0, 7); // "YYYY-MM"
-let who = ''; // member whose "no time" days are toggled by a click
+let who = ''; // member whose "no time" days are toggled by a click; '' = plan rehearsals
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -299,7 +300,7 @@ export function awayOn(b: Band, day: string): string[] {
 
 export function renderCalendar(main: HTMLElement, c: Ctx, openGig: (id: string) => void) {
   const b = c.b;
-  if (!who || !b.members.some((m) => m.id === who)) who = b.members[0]?.id ?? '';
+  if (who && !b.members.some((m) => m.id === who)) who = '';
   const [y, mo] = month.split('-').map(Number);
   const first = new Date(y, mo - 1, 1);
   const bar = el('div', 'calBar');
@@ -310,8 +311,13 @@ export function renderCalendar(main: HTMLElement, c: Ctx, openGig: (id: string) 
   todayBtn.onclick = () => { month = iso(new Date()).slice(0, 7); c.rerender(); };
   bar.appendChild(todayBtn);
   bar.appendChild(el('span', 'spacer'));
+  const ws = el('div', 'calWho');
+  const rb = el('button', 'chipBtn reh' + (!who ? ' on' : ''), `${icon('music', 11)}<span>${esc(t('Probe planen'))}</span>`);
+  rb.onclick = () => { who = ''; c.rerender(); };
+  ws.appendChild(rb);
+  bar.appendChild(ws);
   if (b.members.length) {
-    bar.appendChild(el('span', 'calWhoL', esc(t('Keine Zeit eintragen für'))));
+    bar.appendChild(el('span', 'calWhoL', esc(t('Keine Zeit:'))));
     const ws = el('div', 'calWho');
     for (const m of b.members) {
       const bt = el('button', 'chipBtn' + (m.id === who ? ' on' : ''), esc(m.name || '?'));
@@ -338,6 +344,13 @@ export function renderCalendar(main: HTMLElement, c: Ctx, openGig: (id: string) 
     const gigs = b.gigs.filter((g) => g.date === ds);
     const cell = el('div', 'calDay' + (out ? ' out' : '') + (ds === today ? ' today' : '') + (away.includes(who) ? ' mine' : ''));
     cell.appendChild(el('span', 'num', String(day.getDate())));
+    for (const r of b.rehearsals.filter((x) => x.date === ds)) {
+      const clash = r.lineup.filter((m) => away.includes(m));
+      const rb2 = el('button', 'calGig reh' + (clash.length ? ' clash' : ''), `${icon('music', 11)}<span>${esc(r.from ? `${r.from} ${t('Probe')}` : t('Probe'))}</span>`);
+      rb2.dataset.tip = (clash.length ? t('Keine Zeit: {x}', { x: clash.map((id) => b.members.find((m) => m.id === id)?.name ?? '?').join(', ') }) + ' · ' : '') + [r.place, r.songs.map((id) => b.songs.find((x) => x.id === id)?.title).filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+      rb2.onclick = (e) => { e.stopPropagation(); void rehearsalWizard(c, r); };
+      cell.appendChild(rb2);
+    }
     for (const g of gigs) {
       const clash = g.lineup.filter((m) => away.includes(m));
       const gb = el('button', 'calGig' + (clash.length ? ' clash' : ''), `${icon('calendar', 11)}<span>${esc(g.title || g.venue || t('Gig'))}</span>`);
@@ -357,9 +370,9 @@ export function renderCalendar(main: HTMLElement, c: Ctx, openGig: (id: string) 
       }
       cell.appendChild(aw);
     }
-    cell.dataset.tip = who ? (away.includes(who) ? t('Klick: {x} hat doch Zeit', { x: b.members.find((m) => m.id === who)?.name ?? '' }) : t('Klick: {x} hat keine Zeit', { x: b.members.find((m) => m.id === who)?.name ?? '' })) : '';
+    cell.dataset.tip = who ? (away.includes(who) ? t('Klick: {x} hat doch Zeit', { x: b.members.find((m) => m.id === who)?.name ?? '' }) : t('Klick: {x} hat keine Zeit', { x: b.members.find((m) => m.id === who)?.name ?? '' })) : t('Klick: Probe eintragen');
     cell.onclick = () => {
-      if (!who) return;
+      if (!who) return void rehearsalWizard(c, ds);
       toggleAway(b, who, ds);
       save();
       c.rerender();
@@ -367,7 +380,7 @@ export function renderCalendar(main: HTMLElement, c: Ctx, openGig: (id: string) 
     grid.appendChild(cell);
   }
   main.appendChild(grid);
-  main.appendChild(el('p', 'hint pad', esc(t('Mitglied oben wählen, dann Tage anklicken. Rote Gigs: jemand aus der Besetzung hat keine Zeit.'))));
+  main.appendChild(el('p', 'hint pad', esc(who ? t('Tage anklicken, an denen {x} keine Zeit hat. Rot: jemand aus der Besetzung hat keine Zeit.', { x: b.members.find((m) => m.id === who)?.name ?? '' }) : t('Tag anklicken, um eine Probe einzutragen. Rot: jemand aus der Besetzung hat keine Zeit.'))));
 }
 
 function toggleAway(b: Band, member: string, day: string) {
@@ -419,14 +432,37 @@ function gigEvent(b: Band, g: Gig): string[] {
   return lines;
 }
 
-export function icsFor(b: Band, gigs: Gig[], name: string): string {
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Stagecraft//Band//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', fold(`X-WR-CALNAME:${icsEsc(name)}`), ...gigs.filter((g) => g.date).flatMap((g) => gigEvent(b, g)), 'END:VCALENDAR'].join('\r\n') + '\r\n';
+function rehearsalEvent(b: Band, r: Rehearsal): string[] {
+  const d = r.date.replace(/-/g, '');
+  const lines = ['BEGIN:VEVENT', `UID:${r.id}@stagecraft`, `DTSTAMP:${stamp()}`];
+  if (/^\d\d:\d\d$/.test(r.from)) {
+    const end = /^\d\d:\d\d$/.test(r.to) && r.to > r.from ? r.to : `${String(Math.min(23, Number(r.from.slice(0, 2)) + 3)).padStart(2, '0')}${r.from.slice(2)}`;
+    lines.push(`DTSTART:${d}T${r.from.replace(':', '')}00`, `DTEND:${d}T${end.replace(':', '')}00`);
+  } else {
+    const n = new Date(r.date + 'T12:00');
+    n.setDate(n.getDate() + 1);
+    lines.push(`DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${iso(n).replace(/-/g, '')}`);
+  }
+  const desc = [
+    r.songs.length ? `${t('Songs')}: ${r.songs.map((id) => b.songs.find((s) => s.id === id)?.title ?? '').filter(Boolean).join(', ')}` : '',
+    r.lineup.length && r.lineup.length < b.members.length ? `${t('Wer')}: ${r.lineup.map((id) => b.members.find((m) => m.id === id)?.name ?? '').join(', ')}` : '',
+    r.note,
+  ].filter(Boolean).join('\n');
+  lines.push(fold(`SUMMARY:${icsEsc(`${b.name}: ${t('Probe')}`)}`));
+  if (r.place) lines.push(fold(`LOCATION:${icsEsc(r.place)}`));
+  if (desc) lines.push(fold(`DESCRIPTION:${icsEsc(desc)}`));
+  lines.push('END:VEVENT');
+  return lines;
+}
+
+export function icsFor(b: Band, gigs: Gig[], name: string, rehearsals: Rehearsal[] = []): string {
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Stagecraft//Band//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', fold(`X-WR-CALNAME:${icsEsc(name)}`), ...gigs.filter((g) => g.date).flatMap((g) => gigEvent(b, g)), ...rehearsals.filter((r) => r.date).flatMap((r) => rehearsalEvent(b, r)), 'END:VCALENDAR'].join('\r\n') + '\r\n';
 }
 
 const ICS = { desc: 'iCalendar', ext: 'ics', mime: 'text/calendar' };
 
-export async function downloadIcs(b: Band, gigs: Gig[], file: string, flash: (m: string) => void) {
-  const bytes = new TextEncoder().encode(icsFor(b, gigs, b.name));
+export async function downloadIcs(b: Band, gigs: Gig[], file: string, flash: (m: string) => void, rehearsals: Rehearsal[] = []) {
+  const bytes = new TextEncoder().encode(icsFor(b, gigs, b.name, rehearsals));
   const r = await saveFile(`${file.replace(/[\\/:*?"<>|]/g, '_')}.ics`, bytes, undefined, ICS);
   if (r) flash(t('Gespeichert: {x}', { x: r.name }));
 }

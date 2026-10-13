@@ -84,6 +84,8 @@ export interface Setlist {
   items: SetItem[];
   /** columns shown in the editor and on the print */
   cols?: SetCol[];
+  /** planned playing time in seconds; ±20 % shows a warning */
+  target?: number;
 }
 
 export interface Contact {
@@ -119,6 +121,8 @@ export interface Gig {
   docs: GigDoc[];
   /** links to photo / video albums */
   photos: PhotoLink[];
+  /** Tour.id or '' */
+  tour?: string;
 }
 
 export interface GigCrew {
@@ -454,6 +458,34 @@ export interface Band {
   away: Away[];
   /** social media and streaming profiles */
   links: BandLink[];
+  tours: Tour[];
+  rehearsals: Rehearsal[];
+}
+
+export interface Tour {
+  id: string;
+  name: string;
+  note: string;
+}
+
+export interface Rehearsal {
+  id: string;
+  date: string; // "YYYY-MM-DD"
+  from: string; // "HH:MM"
+  to: string;
+  place: string;
+  /** songs to work on */
+  songs: string[];
+  /** Member.id */
+  lineup: string[];
+  note: string;
+}
+
+/** how far a setlist is off its planned time: 'short' / 'long' beyond ±20 %, else '' */
+export function targetState(b: Band, l: Setlist): { state: '' | 'short' | 'long'; pct: number } {
+  if (!l.target) return { state: '', pct: 0 };
+  const pct = Math.round(((setlistDuration(b, l) - l.target) / l.target) * 100);
+  return { state: pct > 20 ? 'long' : pct < -20 ? 'short' : '', pct };
 }
 
 export interface BandLink {
@@ -533,7 +565,7 @@ export function newCable(): Cable {
 export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
-  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [], crew: [], rider: newRider(), away: [], links: [] };
+  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [], crew: [], rider: newRider(), away: [], links: [], tours: [], rehearsals: [] };
 }
 
 /** fill missing fields of older / hand-written files */
@@ -551,6 +583,8 @@ export function normalize(d: any): Band {
   b.rider = { ...newRider(), ...(d.rider ?? {}) };
   b.away = d.away ?? [];
   b.links = d.links ?? [];
+  b.tours = d.tours ?? [];
+  b.rehearsals = d.rehearsals ?? [];
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) }, crew: g.crew ?? [], docs: g.docs ?? [], photos: g.photos ?? [] }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
