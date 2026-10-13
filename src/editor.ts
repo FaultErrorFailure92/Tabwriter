@@ -1088,7 +1088,7 @@ export class Editor {
         for (let i = 0; i < n; i++) frets.push(b.notes.find((x) => x.string === n - i)?.fret ?? -1);
         ch.strings = frets;
         const used = frets.filter((f) => f > 0);
-        ch.firstFret = used.length ? Math.min(...used) : 1;
+        ch.firstFret = used.length && Math.max(...used) > 4 ? Math.min(...used) : 1;
       }
       ch.showDiagram = stringed;
       ch.showFingering = false;
@@ -1097,6 +1097,46 @@ export class Editor {
       b.chordId = id;
     }
     this.commit(false);
+  }
+
+  /** toggle a note at string row / fret on the cursor beat (fretboard click) */
+  toggleFretNote(row: number, fret: number) {
+    this.cursor.row = row;
+    const n = this.noteAtCursor();
+    if (n && n.fret === fret) {
+      this.deleteNote();
+      return null;
+    }
+    return this.setFret(fret);
+  }
+
+  /** replace the notes of the cursor beat with a chord shape (frets high -> low, -1 = muted) */
+  setShape(frets: number[], name = '') {
+    const b = this.beat;
+    const n = this.stringCount;
+    this.begin();
+    this.ensureNotRest(b);
+    for (const x of [...b.notes]) b.removeNote(x);
+    frets.forEach((f, i) => {
+      if (f < 0 || i >= n) return;
+      const note = new m.Note();
+      note.string = n - i;
+      note.fret = f;
+      b.addNote(note);
+    });
+    if (name) {
+      const ch = new m.Chord();
+      ch.name = name;
+      ch.strings = frets.slice(0, n);
+      const used = frets.filter((x) => x > 0);
+      ch.firstFret = used.length && Math.max(...used) > 4 ? Math.min(...used) : 1;
+      ch.showDiagram = true;
+      ch.showFingering = false;
+      const id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      this.staff.addChord(id, ch);
+      b.chordId = id;
+    }
+    this.commit();
   }
 
   /** lyric syllable on the cursor beat (one line) */

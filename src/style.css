@@ -1365,3 +1365,31 @@ label.chk .trackIcon { width: 20px; height: 20px; border-radius: 5px; }
 #printArea.parts .printPart + .printPart { break-before: page; }
 #printArea.parts .partLabel { font: 600 11px -apple-system, Helvetica, Arial, sans-serif; color: #666; text-transform: none; margin: 0 0 4px; }
 #printArea .printPart.leadPrint { font: 14px var(--font); color: #111; --label: #111; --label2: #555; --label3: #999; --sep-strong: #bbb; --accent: #111; --accent-soft: #eee; --fill: transparent; }
+
+/* ---------- fretboard ---------- */
+#fretPanel { flex: none; display: flex; flex-direction: column; background: var(--chrome); border-top: 0.5px solid var(--sep-strong); user-select: none; }
+#fretPanel.hidden { display: none; }
+.fbTop { display: flex; align-items: center; gap: 8px; height: 38px; padding: 6px 12px 0 16px; }
+.fbTop .spacer { flex: 1; }
+#fbControls { display: flex; align-items: center; gap: 6px; }
+#fbControls select.pInput.small { width: auto; height: 24px; padding: 2px 6px; font-size: 12px; }
+#fbControls .tbtn.small { font: 600 11px var(--font); width: auto; padding: 0 6px; }
+#fbControls .tbtn.on { color: var(--accent); background: var(--accent-soft); }
+.fbSep { width: 0.5px; height: 16px; background: var(--sep-strong); margin: 0 4px; }
+#fbBody { padding: 4px 12px 10px; overflow-x: auto; }
+.fbSvg { display: block; }
+.fbSvg .fbFret { stroke: var(--sep-strong); stroke-width: 1.4; }
+.fbSvg .fbNut { fill: var(--label2); }
+.fbSvg .fbString { stroke: var(--label3); }
+.fbSvg .fbString.cur { stroke: var(--accent); }
+.fbSvg .fbLabel { font: 600 11px var(--font); fill: var(--label2); }
+.fbSvg .fbLabel.cur { fill: var(--accent); }
+.fbSvg .fbDot { fill: var(--sep-strong); }
+.fbSvg .fbScale circle { fill: color-mix(in srgb, var(--accent) 16%, var(--paper)); stroke: color-mix(in srgb, var(--accent) 45%, transparent); }
+.fbSvg .fbScale.root circle { fill: color-mix(in srgb, var(--orange) 28%, var(--paper)); stroke: var(--orange); }
+.fbSvg .fbScale text { font: 600 8.5px var(--font); fill: var(--label); pointer-events: none; }
+.fbSvg .fbNote circle { fill: var(--accent); }
+.fbSvg .fbNote text { font: 700 10px var(--font); fill: var(--accent-ink); pointer-events: none; }
+.fbSvg .fbHit { fill: transparent; cursor: pointer; }
+.fbSvg .fbHit:hover { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+#fbControls select { width: auto !important; max-width: 160px; }

@@ -16,6 +16,11 @@ export interface Prefs {
   metronome: boolean;
   speed: number;
   leadZoom: number; // lead sheet / rehearsal text size
+  fretboard: boolean;
+  fbFrets: number;
+  fbRoot: number; // -1 = no scale
+  fbScale: string;
+  fbNames: boolean;
   overview: boolean;
   ovHeight: number;
 }
@@ -34,6 +39,11 @@ const DEFAULTS: Prefs = {
   metronome: false,
   speed: 1,
   leadZoom: 1.2,
+  fretboard: false,
+  fbFrets: 15,
+  fbRoot: -1,
+  fbScale: 'pentaMin',
+  fbNames: true,
   overview: false,
   ovHeight: 200,
 };

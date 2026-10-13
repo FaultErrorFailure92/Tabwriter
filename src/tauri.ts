@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions' | 'print-parts';
+  | 'help' | 'onboarding' | 'demo' | 'band' | 'lead' | 'versions' | 'print-parts' | 'fretboard';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();
@@ -96,6 +96,7 @@ export async function setupMenu(run: (a: Action) => void) {
       item('sidebar', t('Spuren ein-/ausblenden'), 'Ctrl+CmdOrCtrl+S'),
       item('multi', t('Alle Spuren / eine Spur'), 'CmdOrCtrl+E'),
       item('lead', t('Lead Sheet'), 'CmdOrCtrl+Shift+E'),
+      item('fretboard', t('Griffbrett'), 'CmdOrCtrl+J'),
       item('panel', t('Spur-Einstellungen'), 'CmdOrCtrl+I'),
       item('overview', t('Übersicht'), 'CmdOrCtrl+B'),
       sep(),

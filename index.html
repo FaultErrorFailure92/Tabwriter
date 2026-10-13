@@ -106,6 +106,7 @@
           <button id="leadBtn" title="Lead Sheet: Akkorde und Text (Probe-Ansicht)" data-key="⇧⌘E"><i data-icon="leadSheet"></i></button>
         </div>
         <button id="bandBtn" class="tbtn" title="Band: Gigs, Setlists, Songs, Mitglieder" data-key="⇧⌘G"><i data-icon="people"></i></button>
+        <button id="fbBtn" class="tbtn" title="Griffbrett: Klick-Eingabe, Skalen, Akkorde" data-key="⌘J"><i data-icon="fretboard"></i></button>
         <button id="ovBtn" class="tbtn" title="Übersicht (Spuren × Takte)" data-key="⌘B"><i data-icon="barIcon"></i></button>
         <button id="panelBtn" class="tbtn on" title="Inspektor ein-/ausblenden" data-key="⌘I"><i data-icon="sidebarRight"></i></button>
         <button id="menuBtn" class="tbtn" title="Mehr"><i data-icon="ellipsis"></i></button>
@@ -173,6 +174,16 @@
 
       <aside id="right"></aside>
     </div>
+
+    <section id="fretPanel" class="hidden" aria-label="Griffbrett">
+      <div class="fbTop">
+        <span class="ovTitle">Griffbrett</span>
+        <span id="fbControls"></span>
+        <span class="spacer"></span>
+        <button id="fbClose" class="tbtn small" title="Griffbrett schließen" data-key="⌘J"><i data-icon="xmark" data-size="12"></i></button>
+      </div>
+      <div id="fbBody"></div>
+    </section>
 
     <section id="overview" class="hidden" aria-label="Übersicht">
       <div class="ovGrip"></div>

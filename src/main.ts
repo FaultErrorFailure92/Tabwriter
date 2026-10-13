@@ -10,6 +10,7 @@ import * as A from './arrangement';
 import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
+import { fretboardSvg, SCALES, CHORDS, NOTE_NAMES, NOTE_NAMES_EN, shapeFor } from './fretboard';
 import { reaperZip } from './reaper';
 import { type Version, diffScores } from './versions';
 import { openPrintDialog } from './print';
@@ -185,6 +186,102 @@ function setMultiView(on: boolean) {
   $('oneBtn').classList.toggle('on', !on);
   render();
 }
+
+// ---------------- fretboard ----------------
+let fbOpen = false;
+function showFretboard(on: boolean) {
+  fbOpen = on;
+  $('fretPanel').classList.toggle('hidden', !on);
+  $('fbBtn').classList.toggle('on', on);
+  setPrefs({ fretboard: on });
+  if (on) {
+    buildFbControls();
+    refreshFretboard();
+  }
+  updateCursor(true);
+}
+
+function buildFbControls() {
+  const box = $('fbControls');
+  box.innerHTML = '';
+  const names = currentLang() === 'en' ? NOTE_NAMES_EN : NOTE_NAMES;
+  const sel = (opts: [string, string][], v: string, fn: (v: string) => void, tip: string) => {
+    const s = document.createElement('select');
+    s.className = 'pInput small';
+    s.dataset.tip = tip;
+    for (const [k, l] of opts) s.add(new Option(l, k));
+    s.value = v;
+    s.onchange = () => {
+      fn(s.value);
+      s.blur();
+      refreshFretboard();
+    };
+    box.appendChild(s);
+    return s;
+  };
+  sel([['-1', t('Keine Skala')], ...names.map((n, i) => [String(i), n] as [string, string])], String(prefs().fbRoot), (v) => setPrefs({ fbRoot: Number(v) }), t('Grundton der Skala'));
+  sel(SCALES.map((x) => [x.id, t(x.label)] as [string, string]), prefs().fbScale, (v) => setPrefs({ fbScale: v }), t('Skala'));
+  const nm = document.createElement('button');
+  nm.className = 'tbtn small' + (prefs().fbNames ? ' on' : '');
+  nm.textContent = 'A♯';
+  nm.dataset.tip = t('Tonnamen in der Skala zeigen');
+  nm.onclick = () => {
+    setPrefs({ fbNames: !prefs().fbNames });
+    nm.classList.toggle('on', prefs().fbNames);
+    nm.blur();
+    refreshFretboard();
+  };
+  box.appendChild(nm);
+  sel([['12', '12'], ['15', '15'], ['17', '17'], ['22', '22'], ['24', '24']], String(prefs().fbFrets), (v) => setPrefs({ fbFrets: Number(v) }), t('Anzahl Bünde'));
+  const sep = document.createElement('i');
+  sep.className = 'fbSep';
+  box.appendChild(sep);
+  const ch = sel([['', t('Akkord einsetzen …')], ...CHORDS.map((c) => [c.name, c.name] as [string, string])], '', (v) => {
+    if (!v) return;
+    const shape = shapeFor(v, editor.staff.tuning);
+    if (!shape) flash(t('Griffbilder gibt es nur für 6 Saiten in Standardstimmung'));
+    else {
+      editor.setShape(shape, v);
+      previewNote(editor.beat.notes[0]);
+    }
+    ch.value = '';
+  }, t('Griffbild auf den aktuellen Schlag setzen (mit Akkordname)'));
+}
+
+function refreshFretboard() {
+  if (!fbOpen) return;
+  const body = $('fbBody');
+  if (editor.isDrums) {
+    body.innerHTML = `<div class="sideEmpty">${escapeHtml(t('Das Griffbrett gibt es für Saiteninstrumente.'))}</div>`;
+    return;
+  }
+  const n = editor.stringCount;
+  const p = prefs();
+  body.innerHTML = fretboardSvg({
+    tuning: editor.staff.tuning,
+    frets: p.fbFrets,
+    notes: editor.beat.notes.map((x) => ({ row: n - x.string, fret: x.fret })),
+    row: editor.cursor.row,
+    root: p.fbRoot,
+    scale: p.fbScale,
+    names: p.fbNames,
+    en: currentLang() === 'en',
+  }, Math.max(500, body.clientWidth - 8));
+}
+$('fbBtn').onclick = () => { $('fbBtn').blur(); showFretboard(!fbOpen); };
+$('fbClose').onclick = () => showFretboard(false);
+$('fbBody').addEventListener('mousedown', (e) => {
+  const hit = (e.target as Element).closest('.fbHit') as SVGRectElement | null;
+  if (!hit) return;
+  e.preventDefault();
+  const r = Number(hit.dataset.r);
+  const f = Number(hit.dataset.f);
+  const n = editor.toggleFretNote(r, f);
+  previewNote(n);
+  moved();
+});
+window.addEventListener('resize', () => refreshFretboard());
+if (prefs().fretboard) setTimeout(() => showFretboard(true));
 
 // ---------------- lead sheet ----------------
 let leadMode = false;
@@ -427,6 +524,7 @@ editor.onChange = (structural) => {
   if (structural) refreshChrome();
   else refreshOverview();
   refreshLead();
+  refreshFretboard();
   render();
   updateStatus();
   scheduleAutosave();
@@ -2631,6 +2729,7 @@ function run(a: Action) {
     case 'print': void doPrint(); break;
     case 'meta': openMeta(); break;
     case 'versions': openVersions(); break;
+    case 'fretboard': showFretboard(!fbOpen); break;
     case 'print-parts': openParts(); break;
     case 'undo':
       if (inTextField()) document.execCommand('undo');
@@ -2701,6 +2800,7 @@ function moved() {
   }
   refreshOverview();
   refreshLead();
+  refreshFretboard();
 }
 
 window.addEventListener('keydown', async (e) => {
@@ -2739,7 +2839,7 @@ window.addEventListener('keydown', async (e) => {
     const lk = k.toLowerCase();
     const map: Record<string, Action> = {
       s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: e.shiftKey ? 'lead' : 'multi', i: 'panel', b: 'overview',
-      p: e.shiftKey ? 'print-parts' : 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
+      p: e.shiftKey ? 'print-parts' : 'print', j: 'fretboard', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
     if ((lk === 's' || e.code === 'KeyS') && e.altKey && e.metaKey) { e.preventDefault(); run('versions'); return; }
