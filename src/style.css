@@ -1262,3 +1262,39 @@ textarea.pInput.notes { min-height: 90px; resize: vertical; font: 13px var(--fon
 .bandNavSep { height: 0.5px; background: var(--sep); margin: 6px 8px; }
 .btnGroup { display: inline-flex; gap: 6px; }
 .btnGroup .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- song lifecycle ---------- */
+.phase {
+  display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; line-height: 16px;
+  color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent);
+}
+.bandItem.on .phase { color: var(--accent-ink); background: rgba(255, 255, 255, 0.22); }
+.bandItem .fileDot { display: inline-flex; margin-left: 6px; opacity: .6; vertical-align: -1px; }
+.phaseBar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -4px 0 14px; }
+.phaseBar .spacer { flex: 1; }
+.phaseBar .search { width: 180px; }
+.phaseChip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 12px;
+  background: var(--fill); color: var(--label); font: 12px var(--font); cursor: pointer;
+}
+.phaseChip i { width: 8px; height: 8px; border-radius: 4px; }
+.phaseChip span { color: var(--label3); font-variant-numeric: tabular-nums; }
+.phaseChip.on { background: var(--accent); color: var(--accent-ink); }
+.phaseChip.on span { color: color-mix(in srgb, var(--accent-ink) 70%, transparent); }
+.phaseSteps { display: flex; gap: 3px; margin: 2px 0 6px; }
+.phaseSteps .phaseStep {
+  flex: 1; height: 26px; border: 0; font: 600 11.5px var(--font); cursor: pointer; color: var(--label2); background: var(--fill);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%, 8px 50%);
+}
+.phaseSteps .phaseStep:first-child { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%); border-radius: 6px 0 0 6px; }
+.phaseSteps .phaseStep.past { color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.phaseSteps .phaseStep.on { color: #fff; background: var(--c); }
+.todoRow { display: grid; grid-template-columns: 18px 1fr 22px; gap: 6px; align-items: center; }
+.todoRow .pInput, .soundRow .pInput { box-shadow: none; background: none; }
+.todoRow .pInput:hover, .soundRow .pInput:hover { background: var(--fill); }
+.todoRow .pInput:focus, .soundRow .pInput:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent-line); }
+.todoRow.done .pInput { text-decoration: line-through; color: var(--label3); }
+.todoRow:not(:hover) .tb, .soundRow:not(:hover) .tb { visibility: hidden; }
+.soundRow { display: grid; grid-template-columns: 1fr 100px 1.2fr 22px; gap: 6px; align-items: center; margin-bottom: 4px; }
+.fileCell .fileName { font-size: 12px; color: var(--label2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detailTop .btn { display: inline-flex; align-items: center; gap: 6px; }

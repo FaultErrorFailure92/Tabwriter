@@ -8,6 +8,7 @@ import { renderStage, printRider } from './stage';
 import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
 import {
   type Band, type Gig, type Setlist, type SetItem,
+  type Song, type Phase, PHASES, newTodo, newSound,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
   setlistDuration, fmtDur, parseDur,
 } from './model';
@@ -154,7 +155,9 @@ export function stepStatus(tb: Tab): { text: string; done: boolean } {
       return b.members.length ? { text: t('{n} Mitglieder', { n: b.members.length }), done: true } : { text: t('Mitglieder anlegen'), done: false };
     case 'songs': {
       const linked = b.songs.filter((s) => s.file).length;
-      return b.songs.length ? { text: t('{n} Songs · {d}', { n: b.songs.length, d: fmtDur(b.songs.reduce((a, s) => a + s.duration, 0)) }) + (linked < b.songs.length ? ' · ' + t('{n} ohne Datei', { n: b.songs.length - linked }) : ''), done: true } : { text: t('Songs schreiben und sammeln'), done: false };
+      if (!b.songs.length) return { text: t('Songs schreiben und sammeln'), done: false };
+      const per = PHASES.map((p) => [p, b.songs.filter((s) => s.phase === p.id).length] as const).filter(([, n]) => n);
+      return { text: t('{n} Songs', { n: b.songs.length }) + ' · ' + per.map(([p, n]) => `${n} ${t(p.label)}`).join(', ') + (linked < b.songs.length ? ' · ' + t('{n} ohne Datei', { n: b.songs.length - linked }) : ''), done: true };
     }
     case 'stage':
       return b.gear.items.length ? { text: t('{g} Geräte · {c} Kanäle · {k} Kabel', { g: b.gear.items.length, c: b.gear.inputs.length, k: b.gear.cables.length }), done: b.gear.inputs.length > 0 } : { text: t('Equipment, Bühnenplan, Kanäle'), done: false };
@@ -280,6 +283,17 @@ function renderMembers(main: HTMLElement) {
 
 // ---------------- songs ----------------
 
+let selSong = '';
+let songFilter: Phase | '' = '';
+let songQuery = '';
+
+const phaseOf = (p: Phase) => PHASES.find((x) => x.id === p) ?? PHASES[0];
+
+function phaseBadge(p: Phase): string {
+  const ph = phaseOf(p);
+  return `<span class="phase" style="--c:${ph.color}">${esc(t(ph.label))}</span>`;
+}
+
 function renderSongs(main: HTMLElement) {
   const cur = el('button', 'btn', `${icon('music', 14)}<span>${esc(t('Aktuellen Song übernehmen'))}</span>`);
   cur.dataset.tip = t('Titel, Tempo und Länge aus dem Editor');
@@ -293,6 +307,7 @@ function renderSongs(main: HTMLElement) {
     s.key = s.key || c.key;
     s.file = c.file;
     if (!ex) band.songs.push(s);
+    selSong = s.id;
     save();
     render();
     host.flash(ex ? t('„{x}“ aktualisiert', { x: c.title }) : t('„{x}“ hinzugefügt', { x: c.title }));
@@ -302,42 +317,207 @@ function renderSongs(main: HTMLElement) {
   nw.onclick = () => host.newSong();
   extra.append(nw, cur);
   pageHead(main, t('Songs'), t('Song zur Liste hinzufügen (ohne Datei)'), () => {
-    band.songs.push(newSong());
+    const s = newSong(t('Neuer Song'));
+    band.songs.push(s);
+    selSong = s.id;
+    songFilter = '';
     save();
     render();
-    (root.querySelector('.bandTable .row:last-child input') as HTMLInputElement | null)?.focus();
+    (root.querySelector('.bandDetail .bandTitle') as HTMLInputElement | null)?.select();
   }, extra);
   if (!band.songs.length) return empty(main, t('Noch keine Songs. Übernimm den offenen Song oder lege einen mit + an.'));
-  const tbl = el('div', 'bandTable');
-  tbl.appendChild(el('div', 'row head songs', `<span>${t('Titel')}</span><span>${t('Länge')}</span><span>${t('BPM')}</span><span>${t('Tonart')}</span><span>${t('Notiz')}</span><span>${t('Datei')}</span><span></span>`));
-  for (const s of band.songs) {
-    const r = el('div', 'row songs');
-    const bpm = input(s, 'bpm', '–', undefined, 'pInput num', 'number');
-    if (!s.bpm) bpm.value = '';
-    r.append(input(s, 'title', t('Titel')), durInput(s), bpm, input(s, 'key', 'z.B. Em'), input(s, 'notes', t('z.B. Capo 2, Fade-Out')));
-    const fileCell = el('span', 'fileCell');
-    if (s.file) {
-      const open = el('button', 'fileBtn', `${icon('doc', 13)}<span>${esc(baseName(s.file))}</span>`);
-      open.dataset.tip = t('Im Editor öffnen');
-      open.onclick = () => void openSongFile(s.file);
-      fileCell.appendChild(open);
+
+  // filter by phase + search
+  const bar = el('div', 'phaseBar');
+  const chip = (id: Phase | '', label: string, n: number, color = '') => {
+    const c = el('button', 'phaseChip' + (songFilter === id ? ' on' : ''), `${color ? `<i style="background:${color}"></i>` : ''}${esc(label)}<span>${n}</span>`);
+    c.onclick = () => {
+      songFilter = id;
+      render();
+    };
+    bar.appendChild(c);
+  };
+  chip('', t('Alle'), band.songs.length);
+  for (const ph of PHASES) {
+    const n = band.songs.filter((s) => s.phase === ph.id).length;
+    if (n) chip(ph.id, t(ph.label), n, ph.color);
+  }
+  bar.appendChild(el('span', 'spacer'));
+  const q = el('input', 'pInput search');
+  q.type = 'search';
+  q.placeholder = t('Suchen …');
+  q.value = songQuery;
+  q.oninput = () => {
+    songQuery = q.value;
+    const pos = q.selectionStart;
+    render();
+    const nq = root.querySelector('.phaseBar .search') as HTMLInputElement;
+    nq.focus();
+    nq.setSelectionRange(pos, pos);
+  };
+  bar.appendChild(q);
+  main.appendChild(bar);
+
+  const ql = songQuery.trim().toLowerCase();
+  const shown = band.songs.filter((s) => (!songFilter || s.phase === songFilter) && (!ql || [s.title, s.album, s.key, s.notes].join(' ').toLowerCase().includes(ql)));
+  if (!shown.some((s) => s.id === selSong)) selSong = shown[0]?.id ?? '';
+  const split = el('div', 'bandSplit');
+  const list = el('div', 'bandList');
+  let lastAlbum: string | null = null;
+  const sorted = [...shown].sort((a, z) => (a.album || '\uffff').localeCompare(z.album || '\uffff'));
+  for (const s of sorted) {
+    if (s.album !== lastAlbum && band.songs.some((x) => x.album)) {
+      list.appendChild(el('div', 'bandGroup', esc(s.album || t('Ohne Album'))));
+      lastAlbum = s.album;
     }
-    const lk = iconBtn('link', s.file ? t('Andere Datei verknüpfen') : t('Mit Datei verknüpfen'), () => linkMenu(lk, s), 'tb');
-    fileCell.appendChild(lk);
-    r.appendChild(fileCell);
-    r.appendChild(iconBtn('trash', t('Entfernen'), async () => {
-      const used = band.setlists.some((l) => l.items.some((it) => it.type === 'song' && it.song === s.id));
-      if (!(await host.confirm(used ? t('„{x}“ steht in Setlists. Trotzdem entfernen?', { x: s.title }) : t('{x} entfernen?', { x: s.title || t('Song') })))) return;
-      band.songs = band.songs.filter((x) => x !== s);
-      for (const l of band.setlists) l.items = l.items.filter((it) => !(it.type === 'song' && it.song === s.id));
+    const open = s.todos.filter((x) => !x.done).length;
+    const r = el('div', 'bandItem' + (s.id === selSong ? ' on' : ''), `<span class="t">${esc(s.title || t('Ohne Titel'))}${s.file ? `<span class="fileDot" data-tip="${esc(baseName(s.file))}">${icon('doc', 11)}</span>` : ''}</span><span class="s">${phaseBadge(s.phase)} ${s.duration ? fmtDur(s.duration) : ''}${open ? ` · ${esc(t('{n} offen', { n: open }))}` : ''}</span>`);
+    r.onclick = () => {
+      selSong = s.id;
+      render();
+    };
+    list.appendChild(r);
+  }
+  if (!shown.length) list.appendChild(el('div', 'bandEmpty small', esc(t('Nichts gefunden.'))));
+  const total = shown.reduce((a, s) => a + s.duration, 0);
+  list.appendChild(el('div', 'bandSum', esc(t('{n} Songs · {d} gesamt', { n: shown.length, d: fmtDur(total) }))));
+  split.appendChild(list);
+  const s = band.songs.find((x) => x.id === selSong);
+  if (s) split.appendChild(songDetail(s));
+  main.appendChild(split);
+}
+
+function songDetail(s: Song): HTMLElement {
+  const d = el('div', 'bandDetail');
+  const refreshItem = () => {
+    const it = root.querySelector('.bandItem.on .t');
+    if (it) it.firstChild!.textContent = s.title || t('Ohne Titel');
+  };
+  const top = el('div', 'detailTop');
+  top.appendChild(input(s, 'title', t('Titel'), refreshItem, 'bandTitle'));
+  if (s.file) {
+    const open = el('button', 'btn', `${icon('pencil', 13)}<span>${esc(t('Im Editor öffnen'))}</span>`);
+    open.onclick = () => void openSongFile(s.file);
+    top.appendChild(open);
+  }
+  top.appendChild(iconBtn('trash', t('Song entfernen'), async () => {
+    const used = band.setlists.some((l) => l.items.some((it) => it.type === 'song' && it.song === s.id));
+    if (!(await host.confirm(used ? t('„{x}“ steht in Setlists. Trotzdem entfernen?', { x: s.title }) : t('{x} entfernen?', { x: s.title || t('Song') })))) return;
+    band.songs = band.songs.filter((x) => x !== s);
+    for (const l of band.setlists) l.items = l.items.filter((it) => !(it.type === 'song' && it.song === s.id));
+    save();
+    render();
+  }));
+  d.appendChild(top);
+
+  // phase stepper
+  const steps = el('div', 'phaseSteps');
+  const pi = PHASES.findIndex((p) => p.id === s.phase);
+  PHASES.forEach((ph, i) => {
+    const b = el('button', 'phaseStep' + (i < pi ? ' past' : i === pi ? ' on' : ''), esc(t(ph.label)));
+    b.style.setProperty('--c', ph.color);
+    b.onclick = () => {
+      s.phase = ph.id;
       save();
       render();
-    }, 'tb'));
-    tbl.appendChild(r);
+    };
+    steps.appendChild(b);
+  });
+  d.appendChild(steps);
+
+  const cols = el('div', 'gigCols');
+  const left = el('div');
+  const right = el('div');
+  cols.append(left, right);
+  d.appendChild(cols);
+
+  const s1 = section(left, t('Steckbrief'));
+  field(s1, t('Album'), (() => {
+    const i = input(s, 'album', t('z.B. EP 2027'));
+    i.setAttribute('list', 'albumList');
+    return i;
+  })());
+  const dl = el('datalist');
+  dl.id = 'albumList';
+  for (const a of [...new Set(band.songs.map((x) => x.album).filter(Boolean))]) dl.appendChild(Object.assign(el('option'), { value: a }));
+  s1.appendChild(dl);
+  field(s1, t('Länge'), durInput(s));
+  const bpm = input(s, 'bpm', '–', undefined, 'pInput num', 'number');
+  if (!s.bpm) bpm.value = '';
+  field(s1, t('BPM'), bpm);
+  field(s1, t('Tonart'), input(s, 'key', 'z.B. Em'));
+  const fileCell = el('span', 'fileCell');
+  if (s.file) fileCell.appendChild(el('span', 'fileName', esc(baseName(s.file))));
+  const lk = iconBtn('link', s.file ? t('Andere Datei verknüpfen') : t('Mit Datei verknüpfen'), () => linkMenu(lk, s), 'tb');
+  fileCell.appendChild(lk);
+  field(s1, t('Datei'), fileCell);
+  const s2 = section(left, t('Notizen'));
+  const ta = el('textarea', 'pInput notes');
+  ta.placeholder = t('z.B. Capo 2, Fade-Out, Idee für die Bridge …');
+  ta.value = s.notes;
+  ta.oninput = () => {
+    s.notes = ta.value;
+    save();
+  };
+  s2.appendChild(ta);
+
+  // to-dos
+  const addTodo = iconBtn('plus', t('To-do hinzufügen'), () => {
+    s.todos.push(newTodo());
+    save();
+    render();
+    const all = root.querySelectorAll<HTMLInputElement>('.todoRow input[type=text]');
+    all[all.length - 1]?.focus();
+  }, 'tb');
+  const s3 = section(right, t('To-dos'), addTodo);
+  if (!s.todos.length) s3.appendChild(el('div', 'hint', esc(t('z.B. Text Strophe 2, Bass einspielen, Klick prüfen'))));
+  for (const td of s.todos) {
+    const r = el('div', 'todoRow' + (td.done ? ' done' : ''));
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = td.done;
+    cb.onchange = () => {
+      td.done = cb.checked;
+      r.classList.toggle('done', td.done);
+      save();
+    };
+    const tx = input(td, 'text', t('Was ist zu tun?'));
+    tx.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        s.todos.splice(s.todos.indexOf(td) + 1, 0, newTodo());
+        save();
+        render();
+        const all = root.querySelectorAll<HTMLInputElement>('.todoRow input[type=text]');
+        all[s.todos.indexOf(td) + 1]?.focus();
+      }
+    };
+    r.append(cb, tx, iconBtn('xmark', t('Entfernen'), () => { s.todos = s.todos.filter((x) => x !== td); save(); render(); }, 'tb'));
+    s3.appendChild(r);
   }
-  const total = band.songs.reduce((a, s) => a + s.duration, 0);
-  main.appendChild(tbl);
-  main.appendChild(el('div', 'bandSum', esc(t('{n} Songs · {d} gesamt', { n: band.songs.length, d: fmtDur(total) }))));
+
+  // sounds / patches
+  const addSnd = iconBtn('plus', t('Sound hinzufügen'), () => {
+    s.sounds.push(newSound());
+    save();
+    render();
+  }, 'tb');
+  const s4 = section(right, t('Sounds & Patches'), addSnd);
+  if (!s.sounds.length) s4.appendChild(el('div', 'hint', esc(t('Welcher Helix-/Amp-Sound in welchem Teil, z.B. Refrain → 02B Crunch'))));
+  for (const c of s.sounds) {
+    const r = el('div', 'soundRow');
+    const part = input(c, 'part', t('Teil'));
+    part.setAttribute('list', 'partList');
+    r.appendChild(part);
+    r.appendChild(select([['', '–'], ...band.members.map((m) => [m.id, m.name || '?'] as [string, string])], c.member, (v) => { c.member = v; save(); }));
+    r.appendChild(input(c, 'patch', t('Patch, z.B. 02B Crunch')));
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { s.sounds = s.sounds.filter((x) => x !== c); save(); render(); }, 'tb'));
+    s4.appendChild(r);
+  }
+  const pl = el('datalist');
+  pl.id = 'partList';
+  for (const p of ['Intro', 'Strophe', 'Pre-Chorus', 'Refrain', 'Bridge', 'Solo', 'Outro', t('ganzer Song')]) pl.appendChild(Object.assign(el('option'), { value: p }));
+  s4.appendChild(pl);
+  return d;
 }
 
 // ---------------- setlists ----------------

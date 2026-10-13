@@ -17,6 +17,35 @@ export interface Song {
   key: string;
   file: string; // file name or path of the score (optional)
   notes: string;
+  phase: Phase;
+  album: string; // album / EP / collection
+  todos: Todo[];
+  sounds: SoundCue[]; // e.g. Helix patch per part
+}
+
+export type Phase = 'idea' | 'writing' | 'arrangement' | 'production' | 'released' | 'live';
+
+export const PHASES: { id: Phase; label: string; color: string }[] = [
+  { id: 'idea', label: 'Idee', color: '#8e8e93' },
+  { id: 'writing', label: 'Writing', color: '#ff9f0a' },
+  { id: 'arrangement', label: 'Arrangement', color: '#bf5af2' },
+  { id: 'production', label: 'Production', color: '#0a84ff' },
+  { id: 'released', label: 'Released', color: '#30d158' },
+  { id: 'live', label: 'Live', color: '#ff375f' },
+];
+
+export interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface SoundCue {
+  id: string;
+  part: string; // "Intro", "Refrain", "ganzer Song"
+  member: string; // who switches
+  patch: string; // e.g. "02B Crunch"
+  note: string;
 }
 
 export type SetItem =
@@ -202,7 +231,7 @@ export function normalize(d: any): Band {
   if (!d || d.app !== 'stagecraft') throw new Error('Keine Stagecraft-Datei');
   const b = newBand(d.name ?? 'Band');
   b.members = d.members ?? [];
-  b.songs = d.songs ?? [];
+  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [] }));
   b.setlists = d.setlists ?? [];
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) } }));
   const g = d.gear ?? {};
@@ -222,7 +251,15 @@ export function newMember(): Member {
 }
 
 export function newSong(title = ''): Song {
-  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '' };
+  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [] };
+}
+
+export function newTodo(text = ''): Todo {
+  return { id: uid('d'), text, done: false };
+}
+
+export function newSound(): SoundCue {
+  return { id: uid('h'), part: '', member: '', patch: '', note: '' };
 }
 
 export function newSetlist(name: string): Setlist {
