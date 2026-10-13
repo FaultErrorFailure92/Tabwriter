@@ -8,13 +8,13 @@ export const EN: Record<string, string> = {
   '{n} Saiten': '{n} strings',
 
   // native menu
-  'Über Tabwriter': 'About Tabwriter',
+  'Über Stagecraft': 'About Stagecraft',
   'Einstellungen …': 'Settings …',
   'Nach Updates suchen …': 'Check for Updates …',
-  'Tabwriter ausblenden': 'Hide Tabwriter',
+  'Stagecraft ausblenden': 'Hide Stagecraft',
   'Andere ausblenden': 'Hide Others',
   'Alle einblenden': 'Show All',
-  'Tabwriter beenden': 'Quit Tabwriter',
+  'Stagecraft beenden': 'Quit Stagecraft',
   'Exportieren': 'Export',
   'Guitar Pro 7 (.gp) …': 'Guitar Pro 7 (.gp) …',
   'MIDI …': 'MIDI …',
@@ -68,10 +68,10 @@ export const EN: Record<string, string> = {
   'Neuer Song': 'New Song',
 
   // compat
-  'Dein Browser unterstützt nicht alles, was Tabwriter braucht ({x}). Bitte nutze eine aktuelle Version von Chrome, Edge, Firefox oder Safari.':
-    'Your browser lacks features Tabwriter needs ({x}). Please use a current version of Chrome, Edge, Firefox or Safari.',
-  'Tabwriter ist für Computer mit Tastatur gemacht. Auf Handy und Tablet ist die Bedienung eingeschränkt.':
-    'Tabwriter is made for computers with a keyboard. On phones and tablets it is limited.',
+  'Dein Browser unterstützt nicht alles, was Stagecraft braucht ({x}). Bitte nutze eine aktuelle Version von Chrome, Edge, Firefox oder Safari.':
+    'Your browser lacks features Stagecraft needs ({x}). Please use a current version of Chrome, Edge, Firefox or Safari.',
+  'Stagecraft ist für Computer mit Tastatur gemacht. Auf Handy und Tablet ist die Bedienung eingeschränkt.':
+    'Stagecraft is made for computers with a keyboard. On phones and tablets it is limited.',
 
   // library
   'gerade eben': 'just now',
@@ -146,7 +146,7 @@ export const EN: Record<string, string> = {
   'Ungespeicherte Änderungen verwerfen und schließen?': 'Discard unsaved changes and close?',
   'Eine neue Version ist verfügbar.': 'A new version is available.',
   'Neu laden': 'Reload',
-  'Tabwriter funktioniert jetzt auch offline': 'Tabwriter now works offline too',
+  'Stagecraft funktioniert jetzt auch offline': 'Stagecraft now works offline too',
 
   // song info fields
   'Titel': 'Title',
@@ -255,9 +255,9 @@ export const EN: Record<string, string> = {
   '(Steinberg) – Notenschrift · SIL Open Font License 1.1 ·': '(Steinberg) – music font · SIL Open Font License 1.1 ·',
   'General-MIDI-Soundfont · Apache-2.0 ·': 'General MIDI sound font · Apache-2.0 ·',
   '– Desktop-App · MIT / Apache-2.0': '– desktop app · MIT / Apache-2.0',
-  'Guitar Pro ist eine Marke von Arobas Music. Tabwriter ist ein unabhängiges Projekt und nicht mit Arobas Music verbunden.':
-    'Guitar Pro is a trademark of Arobas Music. Tabwriter is an independent project and not affiliated with Arobas Music.',
-  'Willkommen bei Tabwriter': 'Welcome to Tabwriter',
+  'Guitar Pro ist eine Marke von Arobas Music. Stagecraft ist ein unabhängiges Projekt und nicht mit Arobas Music verbunden.':
+    'Guitar Pro is a trademark of Arobas Music. Stagecraft is an independent project and not affiliated with Arobas Music.',
+  'Willkommen bei Stagecraft': 'Welcome to Stagecraft',
   'Tabs und Noten schreibst du komplett mit der Tastatur – wie in Guitar Pro 5.':
     'You write tabs and notation entirely with the keyboard – just like in Guitar Pro 5.',
   'Bewegen': 'Move',
@@ -425,7 +425,7 @@ export const EN: Record<string, string> = {
   "Block löschen": "Delete block",
   "Teile lassen sich in der Arrangement-Zeile löschen": "Delete parts in the arrangement row",
   "Verknüpfte Teile lassen sich nicht teilen – zuerst „Kopie lösen“": "Linked parts can't be split – unlink first",
-  "Keine Tabwriter-Datei": "Not a Tabwriter file",
+  "Keine Stagecraft-Song-Datei": "Not a Stagecraft song file",
   "Guitar Pro 5 (.gp5) …": "Guitar Pro 5 (.gp5) …",
   "Als Guitar Pro 5 exportieren …": "Export as Guitar Pro 5 …",
   "Neuer Teil nach dem aktuellen": "New part after the current one",
@@ -519,7 +519,6 @@ export const EN: Record<string, string> = {
   "Rolle": "Role",
   "Parken, Catering, Backline, Gage …": "Parking, catering, backline, fee …",
   "Aktuelle Band-Daten durch „{x}“ ersetzen?": "Replace current band data with \"{x}\"?",
-  "Keine Stagecraft-Datei": "Not a Stagecraft file",
   "Band": "Band",
 
   // chords, lyrics, lead sheet

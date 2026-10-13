@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tabwriter",
+  "productName": "Stagecraft",
   "version": "1.0.0",
   "identifier": "at.benni.tabwriter",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Tabwriter",
+        "title": "Stagecraft",
         "width": 1360,
         "height": 860,
         "minWidth": 900,
@@ -52,8 +52,8 @@
         "ext": [
           "tabw"
         ],
-        "name": "Tabwriter",
-        "description": "Tabwriter Song",
+        "name": "Stagecraft Song",
+        "description": "Stagecraft Song (Tabwriter)",
         "role": "Editor",
         "mimeType": "application/json"
       },
@@ -86,7 +86,7 @@
       }
     ],
     "category": "Music",
-    "shortDescription": "Tabs und Noten mit der Tastatur schreiben",
+    "shortDescription": "Von der Idee bis zur Bühne – Songs, Arrangement, Bühne, Setlists, Gigs",
     "copyright": "© 2026 Benjamin Auer",
     "createUpdaterArtifacts": false,
     "macOS": {

@@ -1192,7 +1192,7 @@ $('overview').addEventListener('contextmenu', (e) => {
 
 function updateWindowTitle() {
   const name = editor.score.title || fileName;
-  document.title = `${editor.dirty ? '• ' : ''}${name} – Tabwriter`;
+  document.title = `${editor.dirty ? '• ' : ''}${name} – Stagecraft`;
   const parts = [editor.score.artist, editor.dirty ? t('Bearbeitet') : `${fileName}.${format}`].filter(Boolean);
   $('subtitle').textContent = parts.join(' – ');
 }
@@ -1739,7 +1739,7 @@ function refreshBarPanel(el: HTMLElement) {
 
 async function confirmAsk(msg: string): Promise<boolean> {
   const tt = (window as any).__TAURI__;
-  if (tt?.dialog?.ask) return await tt.dialog.ask(msg, { title: 'Tabwriter', kind: 'warning', okLabel: t('OK'), cancelLabel: t('Abbrechen') });
+  if (tt?.dialog?.ask) return await tt.dialog.ask(msg, { title: 'Stagecraft', kind: 'warning', okLabel: t('OK'), cancelLabel: t('Abbrechen') });
   try {
     return window.confirm(msg);
   } catch {
@@ -1993,7 +1993,7 @@ function tabwBytes(): Uint8Array {
 
 function loadTabw(name: string, bytes: Uint8Array, path?: string): boolean {
   const d = JSON.parse(new TextDecoder().decode(bytes)) as TabwFile;
-  if (d.app !== 'tabwriter' || !d.score) throw new Error(t('Keine Tabwriter-Datei'));
+  if (d.app !== 'tabwriter' || !d.score) throw new Error(t('Keine Stagecraft-Song-Datei'));
   const score = restore(JSON.stringify(d.score), api.settings);
   loadScore(score, name, { path, format: 'tabw', arr: d.arrangement ?? null });
   versions = d.versions ?? [];
@@ -3133,7 +3133,7 @@ if (isDesktop()) {
           ]);
         },
         onOfflineReady() {
-          flash(t('Tabwriter funktioniert jetzt auch offline'));
+          flash(t('Stagecraft funktioniert jetzt auch offline'));
         },
       });
     }).catch(() => {});

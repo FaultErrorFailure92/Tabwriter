@@ -29,20 +29,20 @@ export async function setupMenu(run: (a: Action) => void) {
   const pre = (name: string, text?: string) => PredefinedMenuItem.new({ item: name, text });
 
   const app = await Submenu.new({
-    text: 'Tabwriter',
+    text: 'Stagecraft',
     items: await Promise.all([
-      item('about', t('Über Tabwriter')),
+      item('about', t('Über Stagecraft')),
       sep(),
       item('prefs', t('Einstellungen …'), 'CmdOrCtrl+,'),
       item('updates', t('Nach Updates suchen …')),
       sep(),
       pre('Services'),
       sep(),
-      pre('Hide', t('Tabwriter ausblenden')),
+      pre('Hide', t('Stagecraft ausblenden')),
       pre('HideOthers', t('Andere ausblenden')),
       pre('ShowAll', t('Alle einblenden')),
       sep(),
-      item('quit', t('Tabwriter beenden'), 'CmdOrCtrl+Q'),
+      item('quit', t('Stagecraft beenden'), 'CmdOrCtrl+Q'),
     ]),
   });
   const exportMenu = await Submenu.new({

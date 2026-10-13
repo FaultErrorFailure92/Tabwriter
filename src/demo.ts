@@ -30,7 +30,7 @@ function bassOf(c: Chord): Chord {
 export function buildDemo(settings: alphaTab.Settings): alphaTab.model.Score {
   const score = createEmptyScore();
   score.title = t('Demo-Song');
-  score.artist = 'Tabwriter';
+  score.artist = 'Stagecraft';
   setTempo(score, 110);
   addTrack(score, PRESETS.find((p) => p.kind === 'bass' && p.tuning.length === 4)!);
   addTrack(score, PRESETS.find((p) => p.kind === 'drums')!);

@@ -1,7 +1,7 @@
 {
-  "name": "tabwriter",
+  "name": "stagecraft",
   "version": "1.0.0",
-  "description": "Tabs und Noten mit der Tastatur schreiben – kompatibel mit Guitar Pro 5",
+  "description": "Stagecraft – von der Idee bis zur Bühne: Tab-Editor (GP5-kompatibel), Arrangement, Bühne, Setlists, Gigs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p . && vite build",

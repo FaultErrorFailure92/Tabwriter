@@ -17,9 +17,9 @@ export default defineConfig({
         injectRegister: false,
         includeAssets: ['icon-192.png', 'icon-512.png', 'font/*', 'soundfont/*', 'licenses/*'],
         manifest: {
-          name: 'Tabwriter',
-          short_name: 'Tabwriter',
-          description: 'Tabs und Noten mit der Tastatur schreiben und abspielen',
+          name: 'Stagecraft',
+          short_name: 'Stagecraft',
+          description: 'Von der Idee bis zur Bühne: Songs schreiben, arrangieren, Bühne planen, Setlists und Gigs',
           lang: 'de',
           start_url: './',
           scope: './',

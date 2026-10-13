@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Tabs und Noten mit der Tastatur schreiben und abspielen – kompatibel mit Guitar Pro 5." />
+    <meta name="description" content="Stagecraft: Songs schreiben und arrangieren (Tabwriter, kompatibel mit Guitar Pro 5), Bühne und Technik planen, Setlists und Gigs organisieren." />
     <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#18181a" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="./icon-192.png" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
-    <title>Tabwriter</title>
+    <title>Stagecraft</title>
     <style>
       /* boot screen ("stage"): shown instantly, before scripts and the main stylesheet load */
       #boot {
@@ -148,7 +148,7 @@
       <hr />
       <button data-act="help"><i data-icon="keyboard"></i><span>Tastenkürzel</span><kbd>?</kbd></button>
       <button data-act="onboarding"><i data-icon="sparkles"></i><span>Erste Schritte</span></button>
-      <button data-act="about"><i data-icon="info"></i><span>Über Tabwriter</span></button>
+      <button data-act="about"><i data-icon="info"></i><span>Über Stagecraft</span></button>
     </div>
 
     <div id="trackMenu" class="pop menuPop hidden"></div>
@@ -290,7 +290,7 @@
           <button id="recRestore" class="btn primary">Wiederherstellen</button>
         </div>
         <div id="flow" class="flow"></div>
-        <h2 class="libSection">Songs schreiben</h2>
+        <h2 class="libSection">Songs schreiben <span class="libSub">Tabwriter</span></h2>
         <div class="libActions">
           <button id="libNew" class="tile" title="Neuer Song" data-key="⌘N"><span class="tileIcon"><i data-icon="docPlus" data-size="26"></i></span><span>Neuer Song</span></button>
           <button id="libOpen" class="tile" title="Datei öffnen" data-key="⌘O"><span class="tileIcon"><i data-icon="folder" data-size="26"></i></span><span>Öffnen …</span></button>
@@ -362,7 +362,7 @@
     <div id="aboutDlg" class="overlay hidden">
       <div class="card about">
         <img src="./icon-192.png" alt="" width="72" height="72" />
-        <h2>Tabwriter</h2>
+        <h2>Stagecraft</h2>
         <div class="ver" id="aboutVersion"></div>
         <p class="lead">Tabs und Noten mit der Tastatur schreiben und abspielen.</p>
         <h3>Verwendete Open-Source-Komponenten</h3>
@@ -372,7 +372,7 @@
           <li><b>Sonivox</b> General-MIDI-Soundfont · Apache-2.0 · <a href="./licenses/Sonivox-Apache-2.0.txt" target="_blank">Lizenz</a></li>
           <li><b>Tauri</b> – Desktop-App · MIT / Apache-2.0</li>
         </ul>
-        <p class="small">Guitar Pro ist eine Marke von Arobas Music. Tabwriter ist ein unabhängiges Projekt und nicht mit Arobas Music verbunden.</p>
+        <p class="small">Guitar Pro ist eine Marke von Arobas Music. Stagecraft ist ein unabhängiges Projekt und nicht mit Arobas Music verbunden.</p>
         <div class="row">
           <span class="spacer"></span>
           <button id="aboutClose" class="btn primary">Schließen</button>
@@ -385,7 +385,7 @@
         <div id="obSlides">
           <section>
             <div class="obArt"><i data-icon="keyboard" data-size="52"></i></div>
-            <h2>Willkommen bei Tabwriter</h2>
+            <h2>Willkommen bei Stagecraft</h2>
             <p>Tabs und Noten schreibst du komplett mit der Tastatur – wie in Guitar Pro 5.</p>
           </section>
           <section>
