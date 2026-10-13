@@ -65,6 +65,7 @@ export const ICONS = {
   list: '<path d="M6 4.2h8M6 8h8M6 11.8h8"/><circle cx="2.8" cy="4.2" r=".8" fill="currentColor" stroke="none"/><circle cx="2.8" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="2.8" cy="11.8" r=".8" fill="currentColor" stroke="none"/>',
   people: '<circle cx="6" cy="5.4" r="2.3"/><path d="M1.8 13.4c.3-2.4 2-3.8 4.2-3.8s3.9 1.4 4.2 3.8"/><circle cx="11.3" cy="5.9" r="1.8"/><path d="M11 9.6c1.9 0 3 1.2 3.3 3.4"/>',
   leadSheet: '<rect x="2.6" y="1.8" width="10.8" height="12.4" rx="1.6"/><path d="M5 5h2.4M9.4 5H11M5 7.4h6M5 10h2.4M9.4 10H11M5 12.2h6" stroke-width="1.1"/>',
+  stagePlan: '<rect x="1.8" y="2.6" width="12.4" height="8.4" rx="1.4"/><circle cx="5.4" cy="6.4" r="1.2"/><circle cx="10.6" cy="6.4" r="1.2"/><path d="M4 13.6h8"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
 };
 

@@ -4,6 +4,8 @@ import { icon, type IconName } from '../icons';
 import { dbGet, dbPut } from '../library';
 import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
+import { renderStage, printRider } from './stage';
+import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
 import {
   type Band, type Gig, type Setlist, type SetItem,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, uid,
@@ -13,7 +15,7 @@ import {
 export const STAGECRAFT: FileType = { desc: 'Stagecraft', ext: 'stagecraft', mime: 'application/json' };
 const DB_KEY = '__band';
 
-type Tab = 'gigs' | 'setlists' | 'songs' | 'members';
+type Tab = 'gigs' | 'setlists' | 'songs' | 'members' | 'stage';
 
 export interface CurrentSong {
   title: string;
@@ -37,12 +39,12 @@ let selList = '';
 let root: HTMLElement;
 let saveTimer = 0;
 
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 function save() {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => void dbPut(DB_KEY, JSON.stringify(band)), 300);
 }
+setSaver(save);
 
 export async function initBand(h: BandHost) {
   host = h;
@@ -73,83 +75,6 @@ export function closeBand() {
   root.classList.add('hidden');
 }
 
-// ---------------- small DOM helpers ----------------
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (html) e.innerHTML = html;
-  return e;
-}
-
-function iconBtn(ic: IconName, tip: string, fn: () => void, cls = 'tbtn small'): HTMLButtonElement {
-  const b = el('button', cls, icon(ic, 14));
-  b.dataset.tip = tip;
-  b.onclick = (e) => {
-    e.stopPropagation();
-    fn();
-  };
-  return b;
-}
-
-/** text input bound to obj[key]; onChange runs after every edit */
-function input<T extends object>(obj: T, key: keyof T, ph: string, onChange?: () => void, cls = 'pInput', type = 'text'): HTMLInputElement {
-  const i = el('input', cls);
-  i.type = type;
-  i.placeholder = ph;
-  i.value = String(obj[key] ?? '');
-  i.oninput = () => {
-    (obj as any)[key] = typeof obj[key] === 'number' ? Number(i.value) || 0 : i.value;
-    save();
-    onChange?.();
-  };
-  i.onkeydown = (e) => {
-    if (e.key === 'Enter') i.blur();
-  };
-  return i;
-}
-
-/** duration field "m:ss" */
-function durInput(obj: { duration: number }, onChange?: () => void): HTMLInputElement {
-  const i = el('input', 'pInput dur');
-  i.placeholder = '0:00';
-  i.value = obj.duration ? fmtDur(obj.duration) : '';
-  i.onchange = () => {
-    const v = parseDur(i.value);
-    if (v === null) {
-      i.value = obj.duration ? fmtDur(obj.duration) : '';
-      return;
-    }
-    obj.duration = v;
-    i.value = v ? fmtDur(v) : '';
-    save();
-    onChange?.();
-  };
-  i.onkeydown = (e) => {
-    if (e.key === 'Enter') i.blur();
-  };
-  return i;
-}
-
-function select(options: [string, string][], value: string, fn: (v: string) => void): HTMLSelectElement {
-  const s = el('select', 'pInput');
-  for (const [v, l] of options) {
-    const o = el('option');
-    o.value = v;
-    o.textContent = l;
-    s.appendChild(o);
-  }
-  s.value = value;
-  s.onchange = () => fn(s.value);
-  return s;
-}
-
-function moveItem<T>(arr: T[], i: number, d: number) {
-  const j = i + d;
-  if (j < 0 || j >= arr.length) return;
-  [arr[i], arr[j]] = [arr[j], arr[i]];
-}
-
 function fmtDate(d: string): string {
   if (!d) return t('Ohne Datum');
   const dt = new Date(d + 'T12:00:00');
@@ -175,6 +100,7 @@ function render() {
     ['setlists', 'list', t('Setlists'), band.setlists.length],
     ['songs', 'music', t('Songs'), band.songs.length],
     ['members', 'people', t('Mitglieder'), band.members.length],
+    ['stage', 'stagePlan', t('Bühne & Technik'), band.gear.items.length],
   ];
   for (const [k, ic, label, n] of nav) {
     const b = el('button', 'bandNav' + (tab === k ? ' on' : ''), `${icon(ic, 16)}<span>${esc(label)}</span><span class="cnt">${n || ''}</span>`);
@@ -196,6 +122,7 @@ function render() {
   if (tab === 'gigs') renderGigs(main);
   else if (tab === 'setlists') renderSetlists(main);
   else if (tab === 'songs') renderSongs(main);
+  else if (tab === 'stage') renderStage(main, band, render, (m) => host.confirm(m));
   else renderMembers(main);
 }
 
@@ -466,6 +393,7 @@ function gigDetail(g: Gig): HTMLElement {
   const top = el('div', 'detailTop');
   top.appendChild(input(g, 'title', t('Titel, z.B. Release-Show'), refreshItem, 'bandTitle'));
   top.appendChild(iconBtn('printer', t('Tagesplan drucken'), () => printGig(g)));
+  top.appendChild(iconBtn('stagePlan', t('Rider für diesen Gig drucken'), () => printRider(band, g)));
   top.appendChild(iconBtn('duplicate', t('Gig duplizieren'), () => {
     const c: Gig = JSON.parse(JSON.stringify(g));
     c.id = uid('g');

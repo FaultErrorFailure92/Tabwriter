@@ -1142,3 +1142,57 @@ textarea.pInput.notes { min-height: 90px; resize: vertical; font: 13px var(--fon
   padding: 4px 6px; font: 600 14px var(--font); box-shadow: inset 0 0 0 0.5px var(--sep-strong);
 }
 #entry.lyric input { font-weight: 400; width: 150px; }
+
+/* ---------- stage & technik ---------- */
+.stageSeg button { width: auto; padding: 0 12px; font-size: 12px; }
+.subBar { display: flex; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.subBar h3 { margin: 18px 0 0; font: 600 14px var(--font-display); }
+.subBar .spacer { flex: 1; }
+.subBar .btn { display: inline-flex; align-items: center; gap: 6px; }
+.hint.pad { padding: 6px 12px 10px; }
+.gearCard { background: var(--paper); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 8px 12px 6px; margin-bottom: 12px; }
+.gearHead { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+.gearHead h3 { margin: 0; font: 600 14px var(--font-display); white-space: nowrap; }
+.gearHead .chainTxt { color: var(--label2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.gearHead .spacer { flex: 1; }
+.gearRow { display: grid; grid-template-columns: 20px 150px 1fr 140px 26px 50px; gap: 8px; align-items: center; padding: 3px 0; }
+.gearRow + .gearRow, .gearHead + .gearRow { box-shadow: inset 0 0.5px 0 var(--sep); }
+.gearRow .num { color: var(--label3); text-align: right; font-size: 12px; }
+.gearRow .pInput { box-shadow: none; background: none; }
+.gearRow .pInput:hover { background: var(--fill); }
+.gearRow .pInput:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent-line); }
+.gearRow .tools { display: flex; justify-content: flex-end; }
+.gearRow:not(:hover) .tools { visibility: hidden; }
+.tb.on { color: var(--accent); }
+.bandTable .row.inputs { grid-template-columns: 54px 1.2fr 1.2fr 1fr 80px 30px 1fr 50px; }
+.bandTable .row.cables { grid-template-columns: 1.4fr 1.4fr 130px 80px 64px 130px 26px; }
+.bandTable .row.bom { grid-template-columns: 54px 1fr 2fr; padding-top: 6px; padding-bottom: 6px; }
+.bandTable .row.bom span:first-child { padding-left: 8px; }
+.bandTable .row.group { display: block; font: 600 13px var(--font-display); color: var(--label); padding: 14px 20px 4px; }
+.bandTable .num { font-variant-numeric: tabular-nums; }
+.bandTable .dim { color: var(--label2); }
+.bandTable .row .tools { display: flex; justify-content: flex-end; }
+.bandTable .row:not(:hover) .tools { visibility: hidden; }
+.monRow { display: grid; grid-template-columns: 140px 100px 1fr 1fr 22px; gap: 8px; align-items: center; background: var(--paper); border-radius: 10px; box-shadow: var(--shadow-sm); padding: 6px 10px; margin-bottom: 6px; }
+.planWrap { display: flex; gap: 18px; align-items: flex-start; }
+.planCanvas { flex: 1; min-width: 0; overflow: auto; background: var(--paper); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 8px; }
+.planSide { width: 250px; flex: none; background: var(--paper); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 4px 14px 14px; }
+.planSide .gigSec h3 { margin-bottom: 8px; }
+.xyRow { display: grid; grid-template-columns: auto 1fr auto 1fr auto; gap: 6px; align-items: center; font-size: 12px; color: var(--label2); }
+.xyRow .unit { color: var(--label3); }
+.stageSvg { display: block; max-width: 100%; height: auto; }
+.stageFloor { fill: var(--fill); stroke: var(--sep-strong); }
+.stageSvg .grid { stroke: var(--sep); stroke-dasharray: 2 4; }
+.stageSvg .audience { font: 12px var(--font); fill: var(--label2); }
+.stageSvg .it { cursor: grab; }
+.stageSvg .it text { font: 600 10.5px var(--font); fill: var(--label); pointer-events: none; }
+.stageSvg .gear rect, .stageSvg .gear path { fill: var(--paper); stroke: var(--label2); stroke-width: 1.2; }
+.stageSvg .gear.k-drums rect { fill: color-mix(in srgb, #ff453a 14%, var(--paper)); }
+.stageSvg .gear.k-amp rect { fill: color-mix(in srgb, #f28c00 16%, var(--paper)); }
+.stageSvg .gear.k-monitor path { fill: color-mix(in srgb, #32ade6 16%, var(--paper)); }
+.stageSvg .gear.k-keys rect { fill: color-mix(in srgb, #30d158 14%, var(--paper)); }
+.stageSvg .member circle { fill: var(--accent); }
+.stageSvg .member text { fill: var(--accent-ink); }
+.stageSvg .member text.sub { fill: var(--label2); font-weight: 400; font-size: 10px; }
+.stageSvg .it.sel rect, .stageSvg .it.sel path, .stageSvg .it.sel circle { stroke: var(--accent); stroke-width: 2.5; }
+.stageSvg .member.sel circle { stroke: var(--label); }

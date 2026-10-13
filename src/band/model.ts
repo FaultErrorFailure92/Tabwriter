@@ -56,107 +56,74 @@ export interface Gig {
   notes: string;
 }
 
-// ---------- gear / cabling (ported from the SwiftUI Verkabelungsplan app, no UI yet) ----------
+// ---------- stage: equipment, inputs, monitors, cables ----------
+// Successor of the SwiftUI "Verkabelungsplan" app (Musician, Instrument, SignalChainObject,
+// Effectboard, Mixer, FOH, PA, Cable, BOMItem), simplified to what a gig needs.
 
-export type OwnerType = 'band' | 'musician' | 'venue' | 'thirdParty';
-export type PortType = 'xlr' | 'jackTS' | 'jackTRS' | 'speakon' | 'usb' | 'midi' | 'ethernet' | 'other';
-export type CableType = 'xlr' | 'jackTS' | 'jackTRS' | 'speakon' | 'ethernet' | 'powerCon' | 'other';
+export type OwnerType = 'band' | 'member' | 'venue' | 'rental';
 
-export interface Owner {
-  type: OwnerType;
-  member?: string; // Member.id when type = musician
-  note?: string;
-}
+export type GearKind =
+  | 'guitar' | 'bass' | 'keys' | 'drums' | 'vocals' | 'instrument'
+  | 'effect' | 'amp' | 'di' | 'mic' | 'wireless' | 'monitor' | 'iem' | 'mixer' | 'pa' | 'power' | 'other';
 
-export interface Port {
+export interface GearItem {
   id: string;
-  name: string;
-  type: PortType;
-  direction: 'input' | 'output';
+  name: string; // e.g. "Helix LT", "Marshall JCM800", "SM58"
+  kind: GearKind;
+  member: string; // Member.id who uses it ('' = shared)
+  chain: number; // order within the member's signal chain
+  owner: OwnerType;
+  ownerMember: string; // Member.id when owner = member
+  onStage: boolean; // shows up on the stage plan
+  x: number; // m from stage left (as seen from the audience)
+  y: number; // m from the front edge
+  note: string;
 }
 
-export interface Pos {
-  x: number;
-  y: number;
-}
-
-export interface Instrument {
+export interface InputChannel {
   id: string;
-  name: string;
-  member?: string; // who plays it
-  owner: Owner;
-  inputs: Port[];
-  outputs: Port[];
-  pos?: Pos;
+  ch: number;
+  source: string; // e.g. "Kick", "Git Benni"
+  gear: string; // GearItem.id (optional)
+  mic: string; // e.g. "Beta 91", "DI", "Line"
+  stand: string; // "groß", "klein", "Clip", ""
+  phantom: boolean;
+  note: string;
 }
 
-/** effect, amp, DI box, wireless … */
-export interface Device {
+export interface MonitorMix {
   id: string;
-  name: string;
-  owner: Owner;
-  inputs: Port[];
-  outputs: Port[];
-  board?: string; // Effectboard.id
-  chainOrder?: number;
-  pos?: Pos;
+  name: string; // "Mon 1"
+  kind: 'wedge' | 'iem';
+  members: string[];
+  note: string;
 }
 
-export interface Effectboard {
-  id: string;
-  name: string;
-  owner: Owner;
-  pos?: Pos;
-}
-
-export interface Mixer {
-  id: string;
-  name: string;
-  channels: Port[];
-  distanceToFoh?: number; // m
-  pos?: Pos;
-}
-
-export interface Foh {
-  id: string;
-  name: string;
-  mixer?: string;
-  pos?: Pos;
-}
-
-export interface PA {
-  id: string;
-  name: string;
-  mixer?: string;
-  pos?: Pos;
-}
+export type CableType = 'xlr' | 'jack' | 'jackTRS' | 'speakon' | 'midi' | 'usb' | 'ethernet' | 'power' | 'powerCon' | 'other';
 
 export interface Cable {
   id: string;
-  from?: string; // Port.id
-  to?: string; // Port.id
+  from: string; // GearItem.id or free text
+  to: string; // GearItem.id, "ch:<n>" for an input channel, or free text
   type: CableType;
-  length?: number; // m
-  color?: string;
+  length: number; // m, 0 = unknown
+  count: number;
+  owner: OwnerType;
+  ownerMember: string;
 }
 
-export interface BomItem {
-  id: string;
-  name: string;
-  category: string;
-  quantity: number;
-  owner: Owner;
+export interface Stage {
+  width: number; // m
+  depth: number; // m
+  members: Record<string, { x: number; y: number }>; // where each member stands
 }
 
 export interface Gear {
-  instruments: Instrument[];
-  devices: Device[];
-  boards: Effectboard[];
-  mixers: Mixer[];
-  foh: Foh[];
-  pa: PA[];
+  items: GearItem[];
+  inputs: InputChannel[];
+  monitors: MonitorMix[];
   cables: Cable[];
-  bom: BomItem[];
+  stage: Stage;
 }
 
 export interface Band {
@@ -176,8 +143,40 @@ let seq = 0;
 export const uid = (p = '') => `${p}${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
 export function emptyGear(): Gear {
-  return { instruments: [], devices: [], boards: [], mixers: [], foh: [], pa: [], cables: [], bom: [] };
+  return { items: [], inputs: [], monitors: [], cables: [], stage: { width: 8, depth: 5, members: {} } };
 }
+
+export const GEAR_KINDS: [GearKind, string][] = [
+  ['guitar', 'Gitarre'], ['bass', 'Bass'], ['keys', 'Keys'], ['drums', 'Drums'], ['vocals', 'Gesang'], ['instrument', 'Instrument'],
+  ['effect', 'Effekt / Board'], ['amp', 'Amp / Box'], ['di', 'DI-Box'], ['mic', 'Mikrofon'], ['wireless', 'Funk'],
+  ['monitor', 'Monitor'], ['iem', 'In-Ear'], ['mixer', 'Mischpult'], ['pa', 'PA'], ['power', 'Strom'], ['other', 'Sonstiges'],
+];
+
+export const CABLE_TYPES: [CableType, string][] = [
+  ['xlr', 'XLR'], ['jack', 'Klinke (TS)'], ['jackTRS', 'Klinke (TRS)'], ['speakon', 'Speakon'], ['midi', 'MIDI'],
+  ['usb', 'USB'], ['ethernet', 'Netzwerk'], ['power', 'Strom (Schuko)'], ['powerCon', 'powerCON'], ['other', 'Sonstiges'],
+];
+
+export const OWNERS: [OwnerType, string][] = [['band', 'Band'], ['member', 'Mitglied'], ['venue', 'Venue'], ['rental', 'Verleih']];
+
+export function newGearItem(kind: GearKind, member = ''): GearItem {
+  return { id: uid('e'), name: '', kind, member, chain: 0, owner: member ? 'member' : 'band', ownerMember: member, onStage: false, x: 0, y: 0, note: '' };
+}
+
+export function newInput(ch: number): InputChannel {
+  return { id: uid('i'), ch, source: '', gear: '', mic: '', stand: '', phantom: false, note: '' };
+}
+
+export function newMonitor(n: number): MonitorMix {
+  return { id: uid('o'), name: `Mon ${n}`, kind: 'wedge', members: [], note: '' };
+}
+
+export function newCable(): Cable {
+  return { id: uid('k'), from: '', to: '', type: 'xlr', length: 0, count: 1, owner: 'band', ownerMember: '' };
+}
+
+/** stage gear kinds that are placed by default */
+export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
   return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear() };
@@ -191,7 +190,15 @@ export function normalize(d: any): Band {
   b.songs = d.songs ?? [];
   b.setlists = d.setlists ?? [];
   b.gigs = d.gigs ?? [];
-  b.gear = { ...emptyGear(), ...(d.gear ?? {}) };
+  const g = d.gear ?? {};
+  const e = emptyGear();
+  b.gear = {
+    items: Array.isArray(g.items) ? g.items : e.items,
+    inputs: Array.isArray(g.inputs) ? g.inputs : e.inputs,
+    monitors: Array.isArray(g.monitors) ? g.monitors : e.monitors,
+    cables: Array.isArray(g.cables) ? g.cables : e.cables,
+    stage: { ...e.stage, ...(g.stage ?? {}) },
+  };
   return b;
 }
 
