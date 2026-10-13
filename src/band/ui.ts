@@ -5,6 +5,8 @@ import { dbGet, dbPut } from '../library';
 import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
 import { renderStage, printRider } from './stage';
+import { renderIdeas, collectAudio, restoreAudio } from './ideas';
+import type { Clip } from '../editor';
 import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
 import {
   type Band, type Gig, type Setlist, type SetItem,
@@ -34,6 +36,8 @@ export interface BandHost {
   hasSong(): boolean;
   songTitle(): string;
   newSong(): void;
+  snippet(): Clip | null;
+  useClip(c: Clip): void;
   confirm(msg: string): Promise<boolean>;
   /** songs from the library: file = path (desktop) or file name (browser) */
   recentFiles(): { label: string; file: string }[];
@@ -284,6 +288,7 @@ function renderMembers(main: HTMLElement) {
 // ---------------- songs ----------------
 
 let selSong = '';
+let songSub: 'songs' | 'ideas' = 'songs';
 let songFilter: Phase | '' = '';
 let songQuery = '';
 
@@ -316,6 +321,34 @@ function renderSongs(main: HTMLElement) {
   const nw = el('button', 'btn', `${icon('docPlus', 14)}<span>${esc(t('Neuer Song im Editor'))}</span>`);
   nw.onclick = () => host.newSong();
   extra.append(nw, cur);
+  const seg = el('div', 'seg stageSeg');
+  for (const [k, l] of [['songs', t('Songs')], ['ideas', t('Ideen')]] as const) {
+    const btn = el('button', songSub === k ? 'on' : '', esc(l) + (k === 'ideas' && band.ideas.length ? ` <span class="segCnt">${band.ideas.length}</span>` : ''));
+    btn.onclick = () => {
+      songSub = k;
+      render();
+    };
+    seg.appendChild(btn);
+  }
+  if (songSub === 'ideas') {
+    const top = el('div', 'bandTop');
+    top.appendChild(el('h2', '', esc(t('Songs'))));
+    top.appendChild(seg);
+    main.appendChild(top);
+    renderIdeas(main, band, {
+      snippet: () => host.snippet(),
+      useClip: (c) => host.useClip(c),
+      flash: (m) => host.flash(m),
+      confirm: (m) => host.confirm(m),
+      openSongs: (id) => {
+        songSub = 'songs';
+        selSong = id;
+        render();
+      },
+    }, render);
+    return;
+  }
+  extra.prepend(seg);
   pageHead(main, t('Songs'), t('Song zur Liste hinzufügen (ohne Datei)'), () => {
     const s = newSong(t('Neuer Song'));
     band.songs.push(s);
@@ -977,7 +1010,8 @@ ${g.notes ? `<h2>${esc(t('Notizen'))}</h2><pre>${esc(g.notes)}</pre>` : ''}`;
 // ---------------- file ----------------
 
 async function exportBand() {
-  const bytes = new TextEncoder().encode(JSON.stringify(band, null, 1));
+  const audio = await collectAudio(band);
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...band, audio }, null, 1));
   const name = (band.name || 'band').replace(/[\\/:*?"<>|]/g, '_');
   const r = await saveFile(`${name}.stagecraft`, bytes, undefined, STAGECRAFT);
   if (r) host.flash(t('Gespeichert: {x}', { x: r.name }));
@@ -991,10 +1025,12 @@ async function importBand() {
     const f = inp.files?.[0];
     if (!f) return;
     try {
-      const b = normalize(JSON.parse(await f.text()));
+      const raw = JSON.parse(await f.text());
+      const b = normalize(raw);
       if (band.members.length + band.songs.length + band.gigs.length + band.setlists.length > 0
         && !(await host.confirm(t('Aktuelle Band-Daten durch „{x}“ ersetzen?', { x: b.name })))) return;
       band = b;
+      await restoreAudio(raw.audio);
       save();
       render();
       host.flash(t('{x} geöffnet', { x: f.name }));

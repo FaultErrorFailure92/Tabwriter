@@ -704,6 +704,13 @@ void initBand({
   hasSong: () => hasSong,
   songTitle: () => editor.score.title || fileName,
   newSong: () => { closeBand(); void newSong(); },
+  snippet: () => editor.snippet(),
+  useClip: (c) => {
+    editor.setClip(c);
+    closeBand();
+    closeLibrary();
+    flash(t('Riff kopiert – ⌘V fügt es ein, ⇧⌘V als neue Takte'));
+  },
   recentFiles: () => listRecent().map((it) => ({ label: it.title || it.fileName, file: it.path ?? it.fileName })),
   pickFile: async () => {
     const f = await pickFile($<HTMLInputElement>('fileInput'));

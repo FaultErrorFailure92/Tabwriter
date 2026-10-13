@@ -13,6 +13,8 @@ const DURATIONS = [1, 2, 4, 8, 16, 32, 64];
 
 export interface Pos { bar: number; beat: number }
 
+export interface Clip { json: string; track: number; start: Pos; end: Pos; fullBars: boolean; drums: boolean; strings: number }
+
 export interface Cursor {
   track: number;
   bar: number;
@@ -815,7 +817,26 @@ export class Editor {
   }
 
   // ---------- clipboard ----------
-  private clip: { json: string; track: number; start: Pos; end: Pos; fullBars: boolean; drums: boolean; strings: number } | null = null;
+  private clip: Clip | null = null;
+
+  /** the selection as a small stand-alone clip (one track, only the selected bars) */
+  snippet(): Clip | null {
+    if (!this.hasSelection) return null;
+    this.copy();
+    const c = this.clip!;
+    const o = JSON.parse(c.json);
+    const a = c.start.bar;
+    const z = c.end.bar;
+    o.tracks = [o.tracks[c.track]];
+    o.masterbars = o.masterbars.slice(a, z + 1);
+    for (const st of o.tracks[0].staves) st.bars = st.bars.slice(a, z + 1);
+    return { ...c, json: JSON.stringify(o), track: 0, start: { bar: 0, beat: c.start.beat }, end: { bar: z - a, beat: c.end.beat } };
+  }
+
+  /** put a stored clip on the clipboard (⌘V pastes it) */
+  setClip(c: Clip) {
+    this.clip = c;
+  }
 
   get hasClip() { return !!this.clip; }
 

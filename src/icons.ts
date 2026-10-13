@@ -68,6 +68,7 @@ export const ICONS = {
   stagePlan: '<rect x="1.8" y="2.6" width="12.4" height="8.4" rx="1.4"/><circle cx="5.4" cy="6.4" r="1.2"/><circle cx="10.6" cy="6.4" r="1.2"/><path d="M4 13.6h8"/>',
   checkmark: '<path d="M3.4 8.4 6.6 11.4 12.6 4.6"/>',
   house: '<path d="M2.4 7.6 8 2.8l5.6 4.8"/><path d="M3.8 6.6v6.6h3V9.8h2.4v3.4h3V6.6"/>',
+  mic: '<rect x="5.8" y="1.8" width="4.4" height="7.6" rx="2.2"/><path d="M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v2.2"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
 };
 

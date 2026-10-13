@@ -170,6 +170,30 @@ export interface Gear {
   stage: Stage;
 }
 
+// ---------- ideas ----------
+export type IdeaKind = 'riff' | 'memo' | 'text';
+
+export interface Idea {
+  id: string;
+  kind: IdeaKind;
+  title: string;
+  created: number;
+  tags: string[];
+  key: string;
+  bpm: number;
+  mood: string;
+  note: string;
+  text: string; // lyrics / text ideas
+  song: string; // Song.id it belongs to
+  clip?: any; // riff: editor clip (one track, selected bars)
+  preview?: string; // riff: plain-text tab
+  audio?: { name: string; type: string; duration: number }; // blob in IndexedDB
+}
+
+export function newIdea(kind: IdeaKind, title = ''): Idea {
+  return { id: uid('x'), kind, title, created: Date.now(), tags: [], key: '', bpm: 0, mood: '', note: '', text: '', song: '' };
+}
+
 export interface Band {
   app: 'stagecraft';
   version: 1;
@@ -179,6 +203,7 @@ export interface Band {
   setlists: Setlist[];
   gigs: Gig[];
   gear: Gear;
+  ideas: Idea[];
 }
 
 // ---------- helpers ----------
@@ -223,7 +248,7 @@ export function newCable(): Cable {
 export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
-  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear() };
+  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [] };
 }
 
 /** fill missing fields of older / hand-written files */
@@ -234,6 +259,7 @@ export function normalize(d: any): Band {
   b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [] }));
   b.setlists = d.setlists ?? [];
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) } }));
+  b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
   const e = emptyGear();
   b.gear = {
