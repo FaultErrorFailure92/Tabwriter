@@ -4,7 +4,7 @@ import { prefs, setPrefs, isDark } from './prefs';
 import { renderOverview } from './overview';
 import { initLang, t, translateDom, currentLang } from './i18n';
 import { Editor } from './editor';
-import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
+import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore, rebuild } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
 import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
@@ -153,28 +153,44 @@ function visibleTracks(): number[] {
 
 let renderedKey = '';
 // one render at a time: a result that arrives after the score was replaced
-// would point to beats that no longer exist (broken cursor lookup)
-let renderBusy = false;
+// would point to beats that no longer exist (broken cursor lookup).
+// alphaTab also re-renders on its own (e.g. on resize), so count via its events.
+let rendersRunning = 0;
+let renderRequested = false;
 let renderQueued = false;
 let renderGuard = 0;
 function render() {
-  if (renderBusy) {
+  if (rendersRunning > 0 || renderRequested) {
     renderQueued = true;
     return;
   }
-  renderBusy = true;
+  renderRequested = true;
   renderPending = true;
   const tracks = visibleTracks();
   renderedKey = tracks.join(',');
   clearTimeout(renderGuard);
-  renderGuard = window.setTimeout(renderDone, 4000);
-  api.renderScore(editor.score, tracks);
+  renderGuard = window.setTimeout(resetRender, 15000);
+  // render a copy: the editor changes its score in place before committing, and a render
+  // that is still running must not see that (ids stay the same, so all lookups still match)
+  api.renderScore(rebuild(editor.score, api.settings), tracks);
 }
+function resetRender() {
+  rendersRunning = 0;
+  renderRequested = false;
+  if (renderQueued) {
+    renderQueued = false;
+    render();
+  }
+}
+api.renderStarted.on(() => {
+  renderRequested = false;
+  rendersRunning++;
+});
 /** returns true when a newer render was started */
 function renderDone(): boolean {
+  rendersRunning = Math.max(0, rendersRunning - 1);
+  if (rendersRunning > 0 || renderRequested || !renderQueued) return false;
   clearTimeout(renderGuard);
-  renderBusy = false;
-  if (!renderQueued) return false;
   renderQueued = false;
   render();
   return true;

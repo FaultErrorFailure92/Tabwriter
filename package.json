@@ -7,7 +7,8 @@
     "build": "tsc -p . && vite build",
     "tauri": "tauri",
     "preview": "vite preview",
-    "release": "tauri build --config src-tauri/tauri.release.conf.json"
+    "release": "tauri build --config src-tauri/tauri.release.conf.json",
+    "test": "node tests/run.mjs"
   },
   "license": "MIT",
   "dependencies": {
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@coderline/alphatab-vite": "^1.8.4",
     "@tauri-apps/cli": "^2.12.1",
+    "playwright": "^1.56.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^7.3.7",

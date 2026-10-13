@@ -557,6 +557,8 @@ function lyricsText(t: Track): { start: number; text: string } | null {
   if (start < 0 || lastReal < 0) return null;
   let text = '';
   for (const c of chunks.slice(0, lastReal)) text += text && !text.endsWith('-') ? ' ' + c : c;
+  // a trailing "Hal-" is only read back when something follows
+  if (text.endsWith('-')) text += '_';
   return { start, text };
 }
 
