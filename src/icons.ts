@@ -74,6 +74,17 @@ export const ICONS = {
   euro: '<path d="M11.6 4.2A4.4 4.4 0 1 0 11.6 11.8"/><path d="M2.6 6.8h6M2.6 9.2h6"/>',
   cashbox: '<rect x="2" y="5.4" width="12" height="7.6" rx="1.4"/><path d="M5 5.4V4c0-.8.6-1.4 1.4-1.4h3.2c.8 0 1.4.6 1.4 1.4v1.4M2 8.6h12"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
+  pedal: '<rect x="3.4" y="1.8" width="9.2" height="12.4" rx="1.6"/><circle cx="6" cy="5" r="1"/><circle cx="10" cy="5" r="1"/><rect x="5.2" y="9" width="5.6" height="3" rx=".6"/>',
+  amp: '<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.4"/><path d="M1.8 5.4h12.4"/><circle cx="8" cy="9.4" r="2.6"/><circle cx="4" cy="4" r=".4" fill="currentColor"/><circle cx="5.6" cy="4" r=".4" fill="currentColor"/>',
+  plug: '<path d="M5.6 2v3M10.4 2v3"/><path d="M4 5h8v2.6a4 4 0 0 1-8 0z"/><path d="M8 11.6V14"/>',
+  sliders: '<path d="M4 2.4v11.2M8 2.4v11.2M12 2.4v11.2"/><rect x="2.6" y="8.4" width="2.8" height="2" rx=".6" fill="currentColor"/><rect x="6.6" y="4.4" width="2.8" height="2" rx=".6" fill="currentColor"/><rect x="10.6" y="9.6" width="2.8" height="2" rx=".6" fill="currentColor"/>',
+  radio: '<rect x="4.4" y="5.4" width="7.2" height="8.6" rx="1.4"/><path d="M8 5.4V2M6.4 8.4h3.2"/><path d="M3 3.6a4.8 4.8 0 0 1 2-1.6M13 3.6a4.8 4.8 0 0 0-2-1.6"/>',
+  box: '<path d="M2.4 4.8 8 2l5.6 2.8v6.4L8 14l-5.6-2.8z"/><path d="M2.4 4.8 8 7.6l5.6-2.8M8 7.6V14"/>',
+  kanban: '<rect x="1.8" y="2.4" width="3.6" height="10.8" rx="1"/><rect x="6.2" y="2.4" width="3.6" height="7.6" rx="1"/><rect x="10.6" y="2.4" width="3.6" height="5" rx="1"/>',
+  image: '<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><circle cx="5.6" cy="6" r="1.2"/><path d="m2.2 12 3.8-3.6 2.6 2.4 2-1.8 3.4 3"/>',
+  upload: '<path d="M8 10.4V2.6M5 5.4 8 2.4l3 3"/><path d="M2.6 10.4v1.8c0 .8.6 1.4 1.4 1.4h8c.8 0 1.4-.6 1.4-1.4v-1.8"/>',
+  lyrics: '<path d="M2.6 3.4h8M2.6 6.4h8M2.6 9.4h5"/><path d="M12.2 13.6V8.4l2-.6"/><circle cx="11" cy="13.4" r="1.2"/>',
+  external: '<path d="M9 2.6h4.4V7M13.4 2.6 7.4 8.6"/><path d="M11.6 9.6v2.6c0 .7-.6 1.2-1.2 1.2H3.8c-.7 0-1.2-.6-1.2-1.2V5.6c0-.7.6-1.2 1.2-1.2h2.6"/>',
 };
 
 export type IconName = keyof typeof ICONS;

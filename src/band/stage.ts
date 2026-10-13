@@ -3,6 +3,7 @@ import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, iconBtn, input, select, moveItem, esc, save } from './dom';
 import { pageHead, tabs, card, hint, toggle, popMenu } from './kit';
+import { chainOf, gearLabel, gearAddItems, gearKindItems, modelField, kindButton, syncRole } from './gear';
 import { openPrintDialog } from '../print';
 import {
   type Band, type Gig, type GearItem, type GearKind, type OwnerType, type Cable,
@@ -51,10 +52,6 @@ function gearName(b: Band, id: string): string {
   return g.name || kindLabel(g.kind);
 }
 
-function chainOf(b: Band, member: string): GearItem[] {
-  return b.gear.items.filter((g) => g.member === member).sort((a, c) => a.chain - c.chain);
-}
-
 function renumber(b: Band, member: string) {
   chainOf(b, member).forEach((g, i) => (g.chain = i));
 }
@@ -99,34 +96,27 @@ function renderGear(main: HTMLElement, b: Band, rerender: () => void) {
   const groups: [string, string][] = [...b.members.map((m) => [m.id, m.name || '?'] as [string, string]), ['', t('Gemeinsam (Band, PA, Pult …)')]];
   for (const [mid, name] of groups) {
     const items = chainOf(b, mid);
-    const card = el('div', 'gearCard');
-    const head = el('div', 'gearHead');
-    head.appendChild(el('h3', '', esc(name)));
-    const chain = items.map((g) => g.name || kindLabel(g.kind)).join(' → ');
-    head.appendChild(el('span', 'chainTxt', esc(chain)));
-    head.appendChild(el('span', 'spacer'));
-    head.appendChild(iconBtn('plus', t('Gerät hinzufügen'), () => {
-      const g = newGearItem(items.length ? 'effect' : defaultKind(b, mid), mid);
-      g.chain = items.length;
-      b.gear.items.push(g);
-      save();
-      rerender();
-      (document.querySelector(`[data-gear="${g.id}"] input`) as HTMLInputElement | null)?.focus();
-    }));
-    card.appendChild(head);
+    const c = card(main, name, {
+      cls: 'gearCard',
+      addTip: mid ? t('Instrument oder Gerät hinzufügen') : t('Gerät hinzufügen'),
+      add: (a) => popMenu(a, gearAddItems(b, mid, (g) => {
+        if (STAGE_KINDS.includes(g.kind) && !g.onStage) placeOnStage(b, g);
+        rerender();
+        (document.querySelector(`[data-gear="${g.id}"] .modelField input`) as HTMLInputElement | null)?.focus();
+      }), 'scroll'),
+    });
+    if (items.length) c.querySelector('.secTop h3')!.insertAdjacentHTML('afterend', `<span class="chainTxt">${esc(items.map((g) => g.name || gearLabel(g)).join(' → '))}</span>`);
     items.forEach((g, i) => {
       const r = el('div', 'gearRow');
       r.dataset.gear = g.id;
       r.appendChild(el('span', 'num', mid ? String(i + 1) : '•'));
-      r.appendChild(select(GEAR_KINDS.map(([k, l]) => [k, t(l)] as [string, string]), g.kind, (v) => {
-        g.kind = v as GearKind;
+      r.appendChild(kindButton(g, (a) => popMenu(a, gearKindItems(b, g, () => {
         if (STAGE_KINDS.includes(g.kind) && !g.onStage) placeOnStage(b, g);
-        save();
         rerender();
-      }));
-      r.appendChild(input(g, 'name', t('Modell, z.B. Helix LT'), () => {
-        const h = card.querySelector('.chainTxt');
-        if (h) h.textContent = chainOf(b, mid).map((x) => x.name || kindLabel(x.kind)).join(' → ');
+      }), 'scroll')));
+      r.appendChild(modelField(g, () => {
+        const h = c.querySelector('.chainTxt');
+        if (h) h.textContent = chainOf(b, mid).map((x) => x.name || gearLabel(x)).join(' → ');
       }));
       r.appendChild(ownerSelect(b, g, () => {}));
       const st = iconBtn('stagePlan', g.onStage ? t('Auf dem Bühnenplan (Klick = entfernen)') : t('Auf den Bühnenplan setzen'), () => {
@@ -138,21 +128,21 @@ function renderGear(main: HTMLElement, b: Band, rerender: () => void) {
       r.appendChild(st);
       const tools = el('span', 'tools');
       if (mid) {
-        tools.appendChild(iconBtn('chevronUp', t('Früher in der Kette'), () => { const c = chainOf(b, mid); moveItem(c, i, -1); c.forEach((x, k) => (x.chain = k)); save(); rerender(); }, 'tb'));
-        tools.appendChild(iconBtn('chevronDown', t('Später in der Kette'), () => { const c = chainOf(b, mid); moveItem(c, i, 1); c.forEach((x, k) => (x.chain = k)); save(); rerender(); }, 'tb'));
+        tools.appendChild(iconBtn('chevronUp', t('Früher in der Kette'), () => { const ch = chainOf(b, mid); moveItem(ch, i, -1); ch.forEach((x, k) => (x.chain = k)); save(); rerender(); }, 'tb'));
+        tools.appendChild(iconBtn('chevronDown', t('Später in der Kette'), () => { const ch = chainOf(b, mid); moveItem(ch, i, 1); ch.forEach((x, k) => (x.chain = k)); save(); rerender(); }, 'tb'));
       }
       tools.appendChild(iconBtn('xmark', t('Entfernen'), () => {
         b.gear.items = b.gear.items.filter((x) => x !== g);
-        for (const c of b.gear.inputs) if (c.gear === g.id) c.gear = '';
+        for (const ci of b.gear.inputs) if (ci.gear === g.id) ci.gear = '';
         renumber(b, mid);
+        syncRole(b, mid);
         save();
         rerender();
       }, 'tb'));
       r.appendChild(tools);
-      card.appendChild(r);
+      c.appendChild(r);
     });
-    if (!items.length) card.appendChild(el('div', 'hint pad', esc(mid ? t('Instrument → Effekte → Amp/DI, in Signal-Reihenfolge') : t('z.B. Mischpult, PA, Stagebox, Strom'))));
-    main.appendChild(card);
+    if (!items.length) hint(c, mid ? t('Instrument → Effekte → Amp/DI, in Signal-Reihenfolge') : t('z.B. Mischpult, PA, Stagebox, Strom'));
   }
 }
 

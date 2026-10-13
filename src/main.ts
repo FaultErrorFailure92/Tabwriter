@@ -7,7 +7,7 @@ import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore, rebuild } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
-import { initBand, openBand, closeBand, bandOpen, STEPS, bandReady as hasBand, bandWizard, songSaved, type BandTab } from './band/ui';
+import { initBand, openBand, closeBand, bandOpen, STEPS, bandReady as hasBand, bandWizard, songSaved, bandPeople, type BandTab, type ScoreInfo } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
 import { startMidi, stopMidi, midiSupported } from './midiin';
@@ -937,17 +937,50 @@ function currentFileKey(): string {
   return it?.path ?? it?.fileName ?? '';
 }
 /** song length in seconds (repeats ignored), tempo of bar 1 */
-function songDuration(): number {
-  const bpm = getTempo(editor.score) || 120;
-  const ticks = editor.score.masterBars.reduce((a, mb) => a + barTicks(mb), 0);
+function songDuration(score = editor.score): number {
+  const bpm = getTempo(score) || 120;
+  const ticks = score.masterBars.reduce((a, mb) => a + barTicks(mb), 0);
   // repeated sections count once more per extra play
   let rep = 0;
   let start = 0;
-  editor.score.masterBars.forEach((mb, i) => {
+  score.masterBars.forEach((mb, i) => {
     if (mb.isRepeatStart) start = i;
-    if (mb.repeatCount > 1) for (let k = start; k <= i; k++) rep += barTicks(editor.score.masterBars[k]) * (mb.repeatCount - 1);
+    if (mb.repeatCount > 1) for (let k = start; k <= i; k++) rep += barTicks(score.masterBars[k]) * (mb.repeatCount - 1);
   });
   return Math.round(((ticks + rep) / 960) * (60 / bpm));
+}
+
+const SCORE_EXT = '.gp,.gp3,.gp4,.gp5,.gpx,.musicxml,.xml,.mxl,.tabw';
+
+/** read score files for the band: title, tempo, length; the bytes go into the library */
+async function importScores(files: File[] | null, multiple: boolean): Promise<ScoreInfo[]> {
+  if (!files) {
+    files = await new Promise<File[]>((res) => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = SCORE_EXT;
+      inp.multiple = multiple;
+      inp.onchange = () => res(Array.from(inp.files ?? []));
+      inp.oncancel = () => res([]);
+      inp.click();
+    });
+  }
+  const out: ScoreInfo[] = [];
+  for (const f of files) {
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const ext = (f.name.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
+      const score = ext === 'tabw'
+        ? restore(JSON.stringify(JSON.parse(new TextDecoder().decode(bytes)).score), api.settings)
+        : alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, api.settings);
+      const title = score.title || f.name.replace(/\.[^.]+$/, '');
+      await addRecent({ title, artist: score.artist, fileName: f.name, tracks: score.tracks.map((tr) => tr.name) }, bytes);
+      out.push({ title, file: f.name, bpm: Math.round(getTempo(score)), duration: songDuration(score) });
+    } catch (e: any) {
+      flash(t('Datei konnte nicht geöffnet werden: {x}', { x: `${f.name} – ${e?.message ?? e}` }));
+    }
+  }
+  return out;
 }
 const bandReady = initBand({
   currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: currentFileKey() } : null),
@@ -958,11 +991,12 @@ const bandReady = initBand({
   hasSong: () => hasSong,
   songTitle: () => editor.score.title || fileName,
   newSong: (title) => { closeBand(); void newSong(title); },
-  mountTabwriter: (box) => {
-    renderLibrary();
+  mountRecovery: (box) => {
     void showRecovery();
-    box.appendChild(libWrap());
+    box.appendChild($('libRecover'));
   },
+  openDialog: () => void openSong(),
+  importScores,
   snippet: () => editor.snippet(),
   useClip: (c) => {
     editor.setClip(c);
@@ -970,7 +1004,7 @@ const bandReady = initBand({
     closeLibrary();
     flash(t('Riff kopiert – ⌘V fügt es ein, ⇧⌘V als neue Takte'));
   },
-  recentFiles: () => listRecent().map((it) => ({ label: it.title || it.fileName, file: it.path ?? it.fileName })),
+  recentFiles: () => listRecent().map((it) => ({ label: it.title || it.fileName, file: it.path ?? it.fileName, time: it.time })),
   pickFile: async () => {
     const f = await pickFile($<HTMLInputElement>('fileInput'));
     if (!f) return null;
@@ -1366,6 +1400,7 @@ function refreshPanel() {
   else refreshTrackPanel(body);
 }
 
+let pendingWho = ''; // person picked in the inspector, instrument still open
 function refreshTrackPanel(el: HTMLElement) {
   const i = editor.cursor.track;
   const tr = editor.score.tracks[i];
@@ -1418,6 +1453,56 @@ function refreshTrackPanel(el: HTMLElement) {
     if (e.key === 'Enter' || e.key === 'Escape') name.blur();
   };
   row(s1, t('Name'), name);
+
+  // who plays it (band members and their instruments)
+  const people = bandPeople();
+  if (people.length) {
+    const fits = (p: { track: { kind: string } }) => (drums ? p.track.kind === 'drums' : p.track.kind !== 'drums');
+    const who = people.find((p) => tr.name.startsWith(`${p.name} – `) || tr.name === p.name);
+    const ps = document.createElement('select');
+    ps.innerHTML = `<option value="">–</option>` + people.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    ps.value = who?.id ?? '';
+    const apply = (person: (typeof people)[number], ins: (typeof people)[number]['instruments'][number]) => {
+      const pr = ins.preset;
+      editor.renameTrack(i, `${person.name} – ${t(pr.label)}`);
+      if (!drums) {
+        editor.setTrackProgram(i, pr.track.program);
+        if (pr.track.tuning.length && pr.track.tuning.join() !== st.tuning.join()) editor.setTuning(i, pr.track.tuning, true);
+      }
+      refreshChrome();
+      render();
+      flash(t('Spur: {x}', { x: `${person.name} – ${t(pr.label)}` }));
+    };
+    ps.onchange = () => {
+      const p = people.find((x) => x.id === ps.value);
+      ps.blur();
+      pendingWho = p ? `${i}:${p.id}` : '';
+      const ok = p?.instruments.filter((x) => fits(x.preset)) ?? [];
+      if (p && ok.length === 1) {
+        pendingWho = '';
+        apply(p, ok[0]);
+      } else refreshTrackPanel(el);
+    };
+    ps.id = 'pWho';
+    row(s1, t('Person'), popup(ps));
+    const pend = pendingWho.startsWith(`${i}:`) ? pendingWho.slice(String(i).length + 1) : '';
+    const sel = people.find((p) => p.id === (pend || who?.id));
+    if (sel) ps.value = sel.id;
+    const ok = sel?.instruments.filter((x) => fits(x.preset)) ?? [];
+    if (sel && ok.length > 1) {
+      const is = document.createElement('select');
+      const curIns = ok.find((x) => tr.name === `${sel.name} – ${t(x.preset.label)}`);
+      is.innerHTML = (curIns ? '' : `<option value="">${escapeHtml(t('Instrument wählen …'))}</option>`) + ok.map((x) => `<option value="${x.id}">${escapeHtml(t(x.preset.label) + (x.model ? ` (${x.model})` : ''))}</option>`).join('');
+      if (curIns) is.value = curIns.id;
+      is.onchange = () => {
+        const x = ok.find((y) => y.id === is.value);
+        is.blur();
+        pendingWho = '';
+        if (x) apply(sel, x);
+      };
+      row(s1, t('Instrument'), popup(is));
+    } else if (sel && !ok.length) row(s1, '', `<span class="sub">${escapeHtml(t('Kein passendes Instrument für diese Spur'))}</span>`);
+  }
 
   // sound
   const s2 = section(t('Klang'));
@@ -1815,6 +1900,23 @@ function placePop(pop: HTMLElement, x: number, y: number) {
 $('addTrack').onclick = () => {
   const pop = $('trackMenu');
   pop.innerHTML = '';
+  // band members first: one entry per person and instrument
+  for (const p of bandPeople()) {
+    const h = document.createElement('div');
+    h.className = 'menuHead';
+    h.textContent = p.name;
+    pop.appendChild(h);
+    for (const ins of p.instruments) {
+      const pr = ins.preset;
+      menuButton(pop, pr.icon, t(pr.label) + (ins.model ? ` · ${ins.model}` : ''), () => {
+        editor.addTrack({ kind: pr.track.kind, label: pr.label, name: `${p.name} – ${t(pr.label)}`, program: pr.track.program, tuning: pr.track.tuning });
+        refreshChrome();
+        render();
+        updateStatus();
+      });
+    }
+  }
+  if (pop.childElementCount) pop.appendChild(document.createElement('hr'));
   let lastKind = '';
   for (const p of PRESETS) {
     if (lastKind && p.kind !== lastKind) pop.appendChild(document.createElement('hr'));
@@ -2218,7 +2320,7 @@ function openLibrary() {
     return;
   }
   closeBand();
-  if (libWrap().parentElement !== $('library')) $('library').appendChild(libWrap());
+  if ($('libRecover').parentElement !== libWrap()) libWrap().insertBefore($('libRecover'), $('flow'));
   renderLibrary();
   renderFlow();
   void showRecovery();
@@ -2287,7 +2389,6 @@ async function openRecent(it: RecentEntry) {
 
 $('libNew').onclick = () => newSong();
 $('libOpen').onclick = () => openSong();
-$('libDemo').onclick = () => openDemo();
 $('libClose').onclick = () => closeLibrary();
 $('homeBtn').onclick = () => { $('homeBtn').blur(); openLibrary(); };
 

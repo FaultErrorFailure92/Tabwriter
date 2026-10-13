@@ -7,7 +7,9 @@ import { saveFile, type FileType } from '../io';
 import { openPrintDialog } from '../print';
 import { renderStage, printRider } from './stage';
 import { renderTickets, printDoorList, importExcel } from './tickets';
-import { renderIdeas, ideaAddItems, collectAudio, restoreAudio } from './ideas';
+import { renderSongIdeas, collectAudio, restoreAudio, syllables } from './ideas';
+import { INSTRUMENTS, instrumentOf, gearIcon, guessInstruments, type InstrumentPreset } from './catalog';
+import { addGear, memberInstruments, gearLabel, modelField, syncRole, INSTRUMENT_KINDS } from './gear';
 import type { Clip } from '../editor';
 import { el, iconBtn, input, durInput, select, moveItem, esc, setSaver } from './dom';
 import {
@@ -15,8 +17,8 @@ import {
   wizard, wizInput, wizField, choices, type MenuItem,
 } from './kit';
 import {
-  type Band, type Gig, type Setlist, type SetItem, type Member,
-  type Song, type Phase, PHASES, newTodo, newSound,
+  type Band, type Gig, type Setlist, type SetItem, type Member, type GearItem, type Todo, type TodoStatus,
+  type Song, newTodo, newSound, todoStatus,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
   setlistDuration, fmtDur, ticketTotals,
 } from './model';
@@ -48,13 +50,24 @@ export interface BandHost {
   useClip(c: Clip): void;
   confirm(msg: string): Promise<boolean>;
   /** songs from the library: file = path (desktop) or file name (browser) */
-  recentFiles(): { label: string; file: string }[];
+  recentFiles(): { label: string; file: string; time?: number }[];
   /** choose a file on disk and keep it in the library; returns its file key */
   pickFile(): Promise<{ label: string; file: string } | null>;
   /** open the score in the editor; false if not found */
   openFile(file: string): Promise<boolean>;
-  /** put the Tabwriter part of the start screen (new/open/demo, recent songs) into the container */
-  mountTabwriter(box: HTMLElement): void;
+  /** show the "restore unsaved changes" box (if any) in the container */
+  mountRecovery(box: HTMLElement): void;
+  /** the normal "open file" dialog of the editor */
+  openDialog(): void;
+  /** read score files (picker when files = null), keep them in the library; title, tempo and length */
+  importScores(files: File[] | null, multiple: boolean): Promise<ScoreInfo[]>;
+}
+
+export interface ScoreInfo {
+  title: string;
+  file: string;
+  bpm: number;
+  duration: number;
 }
 
 const baseName = (f: string) => f.split(/[\\/]/).pop() ?? f;
@@ -84,6 +97,7 @@ export async function initBand(h: BandHost) {
   if (raw) {
     try {
       band = normalize(JSON.parse(raw));
+      migrate(band);
     } catch {
       band = newBand(t('Meine Band'));
     }
@@ -160,8 +174,8 @@ function go(to: Tab) {
 function render() {
   document.getElementById('kitPop')?.remove();
   // the Tabwriter start block is borrowed from #library: give it back before clearing
-  const lw = root.querySelector('.libWrap');
-  if (lw) document.getElementById('library')?.appendChild(lw);
+  const rec = root.querySelector('#libRecover');
+  if (rec) document.querySelector('#library .libWrap')?.insertBefore(rec, document.getElementById('flow'));
   root.innerHTML = '';
   root.appendChild(sidebar());
   const main = el('main', 'bandMain');
@@ -182,7 +196,7 @@ function initials(name: string) {
 function sidebar(): HTMLElement {
   const side = el('aside', 'bandSide');
   // band switcher: file actions now, several bands once there are accounts
-  const sw = el('button', 'bandSw', `<span class="bandLogo">${esc(initials(band.name))}</span><b>${esc(band.name || t('Band'))}</b>${icon('chevronDown', 12)}`);
+  const sw = el('button', 'bandSw', `<span class="bandLogo">${band.logo ? `<img src="${band.logo}" alt="">` : esc(initials(band.name))}</span><b>${esc(band.name || t('Band'))}</b>${icon('chevronDown', 12)}`);
   sw.dataset.tip = t('Band-Datei, neue Band');
   sw.onclick = () => popMenu(sw, [
     { icon: 'folder', label: t('Band-Datei öffnen …'), fn: () => void importBand() },
@@ -240,16 +254,57 @@ function titleInput<T extends object>(obj: T, key: keyof T, ph: string, onChange
   return input(obj, key, ph, onChange, 'bandTitle');
 }
 
-const phaseOf = (p: Phase) => PHASES.find((x) => x.id === p) ?? PHASES[0];
-function phaseBadge(p: Phase): string {
-  const ph = phaseOf(p);
-  return `<span class="phase" style="--c:${ph.color}">${esc(t(ph.label))}</span>`;
+// ---------------- images ----------------
+
+/** pick an image and scale it to a square (cover crop) data URL */
+function pickImage(size: number, type: 'image/jpeg' | 'image/png' = 'image/jpeg'): Promise<string | null> {
+  return new Promise((resolve) => {
+    const inp = el('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = () => {
+      const f = inp.files?.[0];
+      if (!f) return resolve(null);
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const s = Math.min(img.width, img.height);
+        const g = c.getContext('2d')!;
+        if (type === 'image/png') {
+          // logos: keep the whole image, centered
+          const k = size / Math.max(img.width, img.height);
+          g.drawImage(img, (size - img.width * k) / 2, (size - img.height * k) / 2, img.width * k, img.height * k);
+        } else g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+        URL.revokeObjectURL(img.src);
+        resolve(c.toDataURL(type, 0.86));
+      };
+      img.onerror = () => resolve(null);
+      img.src = URL.createObjectURL(f);
+    };
+    inp.click();
+  });
+}
+
+function avatar(m: Member, size = 32): string {
+  return m.photo
+    ? `<span class="av" style="--s:${size}px"><img src="${m.photo}" alt=""></span>`
+    : `<span class="av" style="--s:${size}px">${esc(initials(m.name || '?'))}</span>`;
 }
 
 // ---------------- overview ----------------
 
+function relTime(ms?: number): string {
+  if (!ms) return '';
+  const d = (Date.now() - ms) / 1000;
+  if (d < 3600) return t('vor {n} min', { n: Math.max(1, Math.round(d / 60)) });
+  if (d < 86400) return t('vor {n} h', { n: Math.round(d / 3600) });
+  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 function renderHome(main: HTMLElement) {
   pageHead(main, { title: t('Übersicht') });
+  host.mountRecovery(main);
   const grid = el('div', 'homeGrid');
   main.appendChild(grid);
 
@@ -267,98 +322,186 @@ function renderHome(main: HTMLElement) {
     c1.appendChild(r);
   } else hint(c1, t('Kein Gig geplant.'));
 
-  // songs in progress
-  const busy = band.songs.filter((s) => ['idea', 'writing', 'arrangement', 'production'].includes(s.phase));
-  const c2 = card(grid, t('Songs in Arbeit'));
-  if (!busy.length) hint(c2, band.songs.length ? t('Alle Songs sind fertig.') : t('Noch keine Songs.'));
-  for (const s of busy.slice(0, 6)) {
-    const open = s.todos.filter((x) => !x.done).length;
-    const r = el('div', 'linkRow', `<b>${esc(s.title || t('Ohne Titel'))}</b><span>${phaseBadge(s.phase)}${open ? ' ' + esc(t('{n} offen', { n: open })) : ''}</span>`);
+  // open to-dos
+  const open = allTodos().filter((x) => todoStatus(x.td) !== 'done' && x.td.text.trim());
+  const c2 = card(grid, t('Offene To-dos'));
+  if (!open.length) hint(c2, t('Nichts offen.'));
+  for (const { td, song } of open.slice(0, 6)) {
+    const r = el('div', 'linkRow', `<b>${esc(td.text)}</b><span>${esc(song?.title ?? t('Band'))}${todoStatus(td) === 'doing' ? ' · ' + esc(t('In Arbeit')) : ''}</span>`);
     r.onclick = () => {
-      selSong = s.id;
-      songSub = 'songs';
+      songSub = 'todos';
       go('songs');
     };
     c2.appendChild(r);
   }
 
-  // open to-dos
-  const todos = band.songs.flatMap((s) => s.todos.filter((x) => !x.done && x.text.trim()).map((x) => ({ s, x })));
-  const c3 = card(grid, t('Offene To-dos'));
-  if (!todos.length) hint(c3, t('Nichts offen.'));
-  for (const { s, x } of todos.slice(0, 6)) {
-    const r = el('div', 'linkRow', `<b>${esc(x.text)}</b><span>${esc(s.title)}</span>`);
-    r.onclick = () => {
-      selSong = s.id;
-      songSub = 'songs';
-      go('songs');
-    };
+  // recently edited scores (Tabwriter)
+  const openBtn = iconBtn('folder', t('Datei öffnen …'), () => host.openDialog(), 'tb add');
+  const c3 = card(grid, t('Zuletzt bearbeitet'), { extra: [openBtn] });
+  const recent = host.recentFiles().slice(0, 6);
+  if (!recent.length) hint(c3, t('Noch keine Songs geöffnet.'));
+  for (const f of recent) {
+    const r = el('div', 'linkRow', `<b>${esc(f.label)}</b><span>${esc(relTime(f.time))}</span>`);
+    r.onclick = () => void openSongFile(f.file);
     c3.appendChild(r);
   }
-
-  const tw = el('div', 'homeTabwriter');
-  tw.appendChild(el('h3', 'homeSec', `${esc(t('Songs schreiben'))} <span>Tabwriter</span>`));
-  main.appendChild(tw);
-  host.mountTabwriter(tw);
 }
 
 // ---------------- band (members) ----------------
 
 function renderMembers(main: HTMLElement) {
-  const name = input(band, 'name', t('Name der Band'), () => {
+  pageHead(main, { title: t('Band'), primary: { label: t('Mitglied'), tip: t('Mitglied hinzufügen'), fn: () => void memberWizard() } });
+  const cols = el('div', 'gigCols wideRight');
+  const left = el('div');
+  const right = el('div');
+  cols.append(left, right);
+  main.appendChild(cols);
+
+  // band: logo, name, contact
+  const extra = band.logo ? [iconBtn('trash', t('Logo entfernen'), () => { band.logo = undefined; save(); render(); }, 'tb')] : [];
+  const c = card(left, t('Band'), { extra });
+  const logo = el('button', 'logoPick' + (band.logo ? ' has' : ''), band.logo ? `<img src="${band.logo}" alt="">` : `${icon('image', 22)}<span>${esc(t('Logo hinzufügen'))}</span>`);
+  logo.dataset.tip = band.logo ? t('Logo ändern') : t('Logo hinzufügen');
+  logo.onclick = async () => {
+    const u = await pickImage(320, 'image/png');
+    if (!u) return;
+    band.logo = u;
+    save();
+    render();
+  };
+  c.appendChild(logo);
+  row(c, t('Name'), input(band, 'name', t('Name der Band'), () => {
     const b = root.querySelector('.bandSw b');
     if (b) b.textContent = band.name || t('Band');
-  }, 'bandTitle pageTitle');
-  pageHead(main, { title: name, primary: { label: t('Mitglied'), tip: t('Mitglied hinzufügen'), fn: () => void memberWizard() } });
-  if (!band.members.length) return emptyState(main, t('Noch keine Mitglieder.'));
-  if (!band.members.some((m) => m.id === selMember)) selMember = band.members[0].id;
-  const [list, sp] = split(main);
-  for (const m of band.members) {
-    listItem(list, m.id === selMember, esc(m.name || t('Ohne Namen')), esc(m.role || '–'), () => {
-      selMember = m.id;
-      render();
-    });
-  }
-  sp.appendChild(memberDetail(band.members.find((m) => m.id === selMember)!));
+  }));
+  const k = card(left, t('Kontakt'));
+  row(k, t('E-Mail'), input(band.contact, 'email', 'band@…', undefined, 'pInput', 'email'));
+  row(k, t('Telefon'), input(band.contact, 'phone', '+43 …'));
+  row(k, t('Web'), input(band.contact, 'web', 'https://…'));
+  row(k, t('Booking'), input(band.contact, 'booking', t('Name, E-Mail')));
+
+  // members
+  const mc = card(right, t('Mitglieder'));
+  if (!band.members.length) hint(mc, t('Noch keine Mitglieder.'));
+  for (const m of band.members) mc.appendChild(memberRow(m));
 }
 
-function memberDetail(m: Member): HTMLElement {
-  const d = detail();
-  const refresh = () => {
-    const it = root.querySelector('.bandItem.on');
-    if (!it) return;
-    it.querySelector('.t')!.textContent = m.name || t('Ohne Namen');
-    it.querySelector('.s')!.textContent = m.role || '–';
+function memberRow(m: Member): HTMLElement {
+  const r = el('div', 'memberRow');
+  const ph = el('button', 'avBtn', avatar(m, 44));
+  ph.dataset.tip = m.photo ? t('Foto ändern') : t('Foto hinzufügen');
+  ph.onclick = async () => {
+    if (m.photo) {
+      popMenu(ph, [
+        { icon: 'image', label: t('Foto ändern …'), fn: async () => { const u = await pickImage(240); if (u) { m.photo = u; save(); render(); } } },
+        { icon: 'trash', label: t('Foto entfernen'), danger: true, fn: () => { m.photo = undefined; save(); render(); } },
+      ]);
+      return;
+    }
+    const u = await pickImage(240);
+    if (!u) return;
+    m.photo = u;
+    save();
+    render();
   };
-  detailHead(d, {
-    title: titleInput(m, 'name', t('Name'), refresh),
-    menu: () => [{ icon: 'trash', label: t('Mitglied entfernen'), danger: true, fn: () => void removeMember(m) }],
-  });
-  const [l, r] = columns(d);
-  const c = card(l, t('Kontakt'));
-  row(c, t('Instrument / Rolle'), input(m, 'role', t('z.B. Gitarre, Gesang'), refresh));
-  row(c, t('Telefon'), input(m, 'phone', '+43 …'));
-  row(c, t('E-Mail'), input(m, 'email', 'name@…', undefined, 'pInput', 'email'));
-  const g = card(r, t('Equipment'));
-  const chain = band.gear.items.filter((x) => x.member === m.id).sort((a, z) => a.chain - z.chain);
-  if (!chain.length) hint(g, t('Noch kein Equipment. Die Signalkette legst du unter „Bühne & Technik“ an.'));
-  chain.forEach((x, i) => g.appendChild(el('div', 'plainRow', `<span class="num">${i + 1}</span><span>${esc(x.name || t(x.kind))}</span>`)));
-  return d;
+  r.appendChild(ph);
+  const body = el('div', 'memberBody');
+  body.appendChild(input(m, 'name', t('Name'), undefined, 'pInput name'));
+  const chips = el('div', 'insChips');
+  for (const g of memberInstruments(band, m.id)) {
+    const ins = instrumentOf(g.preset);
+    const chip = el('button', 'insChip', `${icon(gearIcon(g.kind, g.preset), 13)}<span>${esc(ins ? t(ins.label) : gearLabel(g))}</span>${g.name ? `<i>${esc(g.name)}</i>` : ''}`);
+    chip.onclick = () => gearPop(chip, g);
+    chips.appendChild(chip);
+  }
+  const add = el('button', 'insChip add', `${icon('plus', 12)}<span>${esc(t('Instrument'))}</span>`);
+  add.onclick = () => popMenu(add, INSTRUMENTS.map((ins): MenuItem => ({ icon: ins.icon, label: t(ins.label), fn: () => { addGear(band, m.id, ins.gear, ins.id); render(); } })), 'scroll');
+  chips.appendChild(add);
+  body.appendChild(chips);
+  r.appendChild(body);
+  r.appendChild(iconBtn('xmark', t('Mitglied entfernen'), () => void removeMember(m), 'tb'));
+  return r;
+}
+
+/** small popover for an instrument: model (with suggestions + Thomann), remove */
+function gearPop(anchor: HTMLElement, g: GearItem) {
+  document.getElementById('kitPop')?.remove();
+  const pop = el('div', 'pop gearPop');
+  pop.id = 'kitPop';
+  pop.appendChild(el('div', 'gearPopHead', `${icon(gearIcon(g.kind, g.preset), 14)}<b>${esc(gearLabel(g))}</b>`));
+  pop.appendChild(modelField(g));
+  const rm = el('button', 'btn small danger', esc(t('Entfernen')));
+  rm.onclick = () => {
+    band.gear.items = band.gear.items.filter((x) => x !== g);
+    for (const c of band.gear.inputs) if (c.gear === g.id) c.gear = '';
+    syncRole(band, g.member);
+    save();
+    pop.remove();
+    render();
+  };
+  pop.appendChild(rm);
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${Math.min(window.innerWidth - 300, r.left)}px`;
+  pop.style.top = `${r.bottom + 4}px`;
+  (pop.querySelector('input') as HTMLInputElement).focus();
+  setTimeout(() => document.addEventListener('mousedown', function off(e) {
+    if (!pop.contains(e.target as Node)) {
+      pop.remove();
+      document.removeEventListener('mousedown', off);
+      render();
+    }
+  }), 0);
 }
 
 async function removeMember(m: Member) {
   if (!(await host.confirm(t('{x} entfernen?', { x: m.name || t('Mitglied') })))) return;
   band.members = band.members.filter((x) => x !== m);
+  band.gear.items = band.gear.items.filter((g) => g.member !== m.id);
   for (const g of band.gigs) g.lineup = g.lineup.filter((id) => id !== m.id);
   save();
   render();
 }
 
+/** for Tabwriter: people with their instruments (and the matching track preset) */
+export function bandPeople() {
+  if (!bandReady()) return [];
+  return band.members
+    .map((m) => ({
+      id: m.id,
+      name: m.name || '?',
+      instruments: memberInstruments(band, m.id)
+        .map((g) => ({ id: g.id, label: gearLabel(g), model: g.name, preset: instrumentOf(g.preset) ?? INSTRUMENTS.find((x) => x.gear === g.kind) }))
+        .filter((x): x is { id: string; label: string; model: string; preset: InstrumentPreset } => !!x.preset),
+    }))
+    .filter((p) => p.instruments.length);
+}
+
+/** older band files: instruments from the role text or the gear kinds */
+function migrate(b: Band) {
+  for (const m of b.members) {
+    const items = b.gear.items.filter((g) => g.member === m.id);
+    for (const g of items) {
+      if (g.preset) continue;
+      const p = INSTRUMENTS.find((x) => x.gear === g.kind);
+      if (p && INSTRUMENT_KINDS.includes(g.kind)) g.preset = p.id;
+    }
+    if (!items.some((g) => g.preset) && m.role) {
+      const cur = band;
+      band = b;
+      for (const id of guessInstruments(m.role)) {
+        const p = instrumentOf(id)!;
+        addGear(b, m.id, p.gear, p.id);
+      }
+      band = cur;
+    }
+  }
+}
+
 // ---------------- songs ----------------
 
 let selSong = '';
-let songSub: 'songs' | 'ideas' = 'songs';
-let songFilter: Phase | '' = '';
+let songSub: 'songs' | 'todos' = 'songs';
 let songQuery = '';
 
 const ideaHost = () => ({
@@ -366,49 +509,45 @@ const ideaHost = () => ({
   useClip: (c: Clip) => host.useClip(c),
   flash: (m: string) => host.flash(m),
   confirm: (m: string) => host.confirm(m),
-  openSongs: (id: string) => {
-    songSub = 'songs';
-    selSong = id;
-    render();
-  },
 });
 
+function allTodos(): { td: Todo; song: Song | null }[] {
+  return [...band.songs.flatMap((s) => s.todos.map((td) => ({ td, song: s as Song | null }))), ...band.todos.map((td) => ({ td, song: null }))];
+}
+
+function setStatus(td: Todo, st: TodoStatus) {
+  td.status = st;
+  td.done = st === 'done';
+  save();
+}
+
 function renderSongs(main: HTMLElement) {
-  const tb = tabs<'songs' | 'ideas'>([['songs', t('Songs'), band.songs.length], ['ideas', t('Ideen'), band.ideas.length]], songSub, (k) => {
+  const openTodos = allTodos().filter((x) => todoStatus(x.td) !== 'done').length;
+  const tb = tabs<'songs' | 'todos'>([['songs', t('Songs'), band.songs.length], ['todos', t('To-dos'), openTodos]], songSub, (k) => {
     songSub = k;
     render();
   });
-  if (songSub === 'ideas') {
-    pageHead(main, { title: t('Songs'), tabs: tb, primary: { label: t('Idee'), tip: t('Riff, Sprachmemo, Audio oder Text'), fn: (a) => popMenu(a, ideaAddItems(band, ideaHost(), render)) } });
-    renderIdeas(main, band, ideaHost(), render);
+  if (songSub === 'todos') {
+    pageHead(main, { title: t('Songs'), tabs: tb, primary: { label: t('To-do'), tip: t('To-do für die Band'), fn: () => {
+      band.todos.unshift(newTodo());
+      save();
+      render();
+      (root.querySelector('.kbCol .kbCard input') as HTMLInputElement | null)?.focus();
+    } } });
+    renderBoard(main);
     return;
   }
   pageHead(main, { title: t('Songs'), tabs: tb, primary: { label: t('Song'), tip: t('Song anlegen'), fn: () => void songWizard() } });
   if (!band.songs.length) return emptyState(main, t('Noch keine Songs.'));
 
   const ql = songQuery.trim().toLowerCase();
-  const shown = band.songs.filter((s) => (!songFilter || s.phase === songFilter) && (!ql || [s.title, s.album, s.key, s.notes].join(' ').toLowerCase().includes(ql)));
+  const shown = band.songs.filter((s) => !ql || [s.title, s.album, s.key, s.notes, s.lyrics].join(' ').toLowerCase().includes(ql));
   if (!shown.some((s) => s.id === selSong)) selSong = shown[0]?.id ?? '';
   const [list, sp] = split(main);
   list.appendChild(searchField(songQuery, (v) => {
     songQuery = v;
     render();
   }, 'songSearch'));
-  const bar = el('div', 'phaseBar');
-  const chip = (id: Phase | '', label: string, n: number, color = '') => {
-    const c = el('button', 'phaseChip' + (songFilter === id ? ' on' : ''), `${color ? `<i style="background:${color}"></i>` : ''}${esc(label)}<span>${n}</span>`);
-    c.onclick = () => {
-      songFilter = id;
-      render();
-    };
-    bar.appendChild(c);
-  };
-  chip('', t('Alle'), band.songs.length);
-  for (const ph of PHASES) {
-    const n = band.songs.filter((s) => s.phase === ph.id).length;
-    if (n) chip(ph.id, t(ph.label), n, ph.color);
-  }
-  list.appendChild(bar);
   let lastAlbum: string | null = null;
   const sorted = [...shown].sort((a, z) => (a.album || '￿').localeCompare(z.album || '￿'));
   for (const s of sorted) {
@@ -417,9 +556,10 @@ function renderSongs(main: HTMLElement) {
       lastAlbum = s.album;
     }
     const open = s.todos.filter((x) => !x.done).length;
+    const meta = [s.key, s.bpm ? `${s.bpm} bpm` : '', s.duration ? fmtDur(s.duration) : '', open ? t('{n} offen', { n: open }) : ''].filter(Boolean).join(' · ');
     listItem(list, s.id === selSong,
       `${esc(s.title || t('Ohne Titel'))}${s.file ? `<span class="fileDot" data-tip="${esc(baseName(s.file))}">${icon('doc', 11)}</span>` : ''}`,
-      `${phaseBadge(s.phase)} ${s.duration ? fmtDur(s.duration) : ''}${open ? ` · ${esc(t('{n} offen', { n: open }))}` : ''}`,
+      esc(meta || (s.file ? baseName(s.file) : t('Noch keine Noten'))),
       () => {
         selSong = s.id;
         render();
@@ -432,23 +572,115 @@ function renderSongs(main: HTMLElement) {
 }
 
 function linkMenu(anchor: HTMLElement, s: Song) {
-  const items: MenuItem[] = [{
-    icon: 'folder', label: t('Datei wählen …'), fn: async () => {
-      const f = await host.pickFile();
-      if (!f) return;
-      s.file = f.file;
-      if (!s.title) s.title = f.label;
-      save();
-      render();
-    },
-  }];
+  const items: MenuItem[] = [{ icon: 'folder', label: t('Datei wählen …'), fn: () => void chooseFile(s) }];
   const recent = host.recentFiles();
   if (recent.length) items.push('sep');
   for (const r of recent.slice(0, 12)) {
     items.push({ icon: r.file === s.file ? 'checkmark' : 'doc', label: r.label, fn: () => { s.file = r.file; if (!s.title) s.title = r.label; save(); render(); } });
   }
   if (s.file) items.push('sep', { icon: 'unlink', label: t('Verknüpfung lösen'), danger: true, fn: () => { s.file = ''; save(); render(); } });
-  popMenu(anchor, items);
+  popMenu(anchor, items, 'scroll');
+}
+
+function applyScore(s: Song, f: ScoreInfo) {
+  s.file = f.file;
+  if (!s.title.trim() || s.title === t('Neuer Song')) s.title = f.title;
+  if (f.bpm) s.bpm = f.bpm;
+  if (f.duration) s.duration = f.duration;
+  save();
+  render();
+  host.flash(t('„{x}“ verknüpft', { x: baseName(f.file) }));
+}
+
+async function chooseFile(s: Song) {
+  const [f] = await host.importScores(null, false);
+  if (f) applyScore(s, f);
+}
+
+/** drop target for score files; stops the editor's own drop handler */
+function dropTarget(box: HTMLElement, onFiles: (files: File[]) => void) {
+  box.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    box.classList.add('over');
+  });
+  box.addEventListener('dragleave', () => box.classList.remove('over'));
+  box.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    box.classList.remove('over');
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) onFiles(files);
+  });
+}
+
+function fileCard(parent: HTMLElement, s: Song) {
+  const extra = s.file ? [iconBtn('link', t('Andere Datei verknüpfen'), () => linkMenu(lk, s), 'tb')] : [];
+  const lk = extra[0];
+  const c = card(parent, t('Noten'), { extra });
+  if (s.file) {
+    const ext = (s.file.match(/\.([^.]+)$/)?.[1] ?? '').toUpperCase();
+    const box = el('div', 'fileBox', `<span class="fileIc">${esc(ext || 'GP')}</span><span class="fileTx"><b>${esc(baseName(s.file).replace(/\.[^.]+$/, ''))}</b><small>${esc(baseName(s.file))}</small></span>`);
+    const open = el('button', 'btn primary', `${icon('pencil', 12)}<span>${esc(t('Im Editor öffnen'))}</span>`);
+    open.onclick = () => void openSongFile(s.file);
+    box.appendChild(open);
+    c.appendChild(box);
+    dropTarget(box, async (files) => {
+      const [f] = await host.importScores(files.slice(0, 1), false);
+      if (f) applyScore(s, f);
+    });
+    return;
+  }
+  const z = el('div', 'dropZone', `${icon('upload', 22)}<b>${esc(t('Noten-Datei hierher ziehen'))}</b><small>GP3–GP7, GPX, MusicXML, .tabw</small>`);
+  const btns = el('div', 'dzBtns');
+  const pick = el('button', 'btn', `${icon('folder', 12)}<span>${esc(t('Datei wählen …'))}</span>`);
+  pick.onclick = () => void chooseFile(s);
+  const nw = el('button', 'btn', `${icon('docPlus', 12)}<span>${esc(t('Neu im Editor schreiben'))}</span>`);
+  nw.onclick = () => {
+    host.newSong(s.title);
+    host.flash(t('Beim ersten Speichern wird die Datei mit „{x}“ verknüpft.', { x: s.title }));
+  };
+  btns.append(pick, nw);
+  z.appendChild(btns);
+  const recent = host.recentFiles().slice(0, 4);
+  if (recent.length) {
+    const rc = el('div', 'dzRecent', `<span>${esc(t('Zuletzt:'))}</span>`);
+    for (const r of recent) {
+      const b = el('button', 'chipBtn', esc(r.label));
+      b.onclick = () => { s.file = r.file; save(); render(); };
+      rc.appendChild(b);
+    }
+    z.appendChild(rc);
+  }
+  dropTarget(z, async (files) => {
+    const [f] = await host.importScores(files.slice(0, 1), false);
+    if (f) applyScore(s, f);
+  });
+  c.appendChild(z);
+}
+
+function lyricsCard(parent: HTMLElement, s: Song) {
+  const c = card(parent, t('Lyrics'), { cls: 'lyricsCard' });
+  const wrap = el('div', 'lyrics');
+  const ta = el('textarea', 'pInput');
+  ta.placeholder = t('Strophe 1 …\n\nRefrain …');
+  ta.value = s.lyrics;
+  ta.spellcheck = true;
+  const gut = el('div', 'syl');
+  gut.dataset.tip = t('Silben pro Zeile (ungefähr)');
+  const upd = () => {
+    gut.innerHTML = ta.value.split('\n').map((l) => `<span>${l.trim() ? syllables(l) : ''}</span>`).join('');
+    gut.scrollTop = ta.scrollTop;
+  };
+  ta.oninput = () => {
+    s.lyrics = ta.value;
+    save();
+    upd();
+  };
+  ta.onscroll = () => (gut.scrollTop = ta.scrollTop);
+  wrap.append(ta, gut);
+  c.appendChild(wrap);
+  upd();
 }
 
 function songDetail(s: Song): HTMLElement {
@@ -457,36 +689,18 @@ function songDetail(s: Song): HTMLElement {
     const it = root.querySelector('.bandItem.on .t');
     if (it) it.firstChild!.textContent = s.title || t('Ohne Titel');
   };
-  let action: HTMLElement | undefined;
-  if (s.file) {
-    action = el('button', 'btn', `${icon('pencil', 13)}<span>${esc(t('Im Editor öffnen'))}</span>`);
-    action.onclick = () => void openSongFile(s.file);
-  }
   const cur = host.currentSong();
   detailHead(d, {
     title: titleInput(s, 'title', t('Titel'), refreshItem),
-    action,
+    meta: [s.key, s.bpm ? `${s.bpm} bpm` : '', s.duration ? fmtDur(s.duration) : ''].filter(Boolean).join(' · '),
     menu: () => [
       ...(cur && cur.file && cur.file === s.file ? [{ icon: 'restore' as IconName, label: t('Tempo & Länge aus dem Editor übernehmen'), fn: () => { s.bpm = cur.bpm; s.duration = cur.duration; save(); render(); } }, 'sep' as const] : []),
       { icon: 'trash', label: t('Song entfernen'), danger: true, fn: () => void removeSong(s) },
     ],
   });
 
-  const steps = el('div', 'phaseSteps');
-  const pi = PHASES.findIndex((p) => p.id === s.phase);
-  PHASES.forEach((ph, i) => {
-    const b = el('button', 'phaseStep' + (i < pi ? ' past' : i === pi ? ' on' : ''), esc(t(ph.label)));
-    b.style.setProperty('--c', ph.color);
-    b.onclick = () => {
-      s.phase = ph.id;
-      save();
-      render();
-    };
-    steps.appendChild(b);
-  });
-  d.appendChild(steps);
-
   const [left, right] = columns(d);
+  fileCard(left, s);
   const s1 = card(left, t('Steckbrief'));
   const album = input(s, 'album', t('z.B. EP 2027'));
   album.setAttribute('list', 'albumList');
@@ -500,11 +714,6 @@ function songDetail(s: Song): HTMLElement {
   if (!s.bpm) bpm.value = '';
   row(s1, t('BPM'), bpm);
   row(s1, t('Tonart'), input(s, 'key', 'z.B. Em'));
-  const fileCell = el('span', 'fileCell');
-  fileCell.appendChild(el('span', 'fileName' + (s.file ? '' : ' dim'), esc(s.file ? baseName(s.file) : t('keine'))));
-  const lk = iconBtn('link', s.file ? t('Andere Datei verknüpfen') : t('Mit Datei verknüpfen'), () => linkMenu(lk, s), 'tb');
-  fileCell.appendChild(lk);
-  row(s1, t('Datei'), fileCell);
   const s2 = card(left, t('Notizen'));
   const ta = el('textarea', 'pInput notes');
   ta.placeholder = t('z.B. Capo 2, Fade-Out, Idee für die Bridge …');
@@ -515,7 +724,10 @@ function songDetail(s: Song): HTMLElement {
   };
   s2.appendChild(ta);
 
+  lyricsCard(right, s);
+
   const s3 = card(right, t('To-dos'), {
+    extra: [iconBtn('kanban', t('Alle To-dos als Board'), () => { songSub = 'todos'; render(); }, 'tb')],
     addTip: t('To-do hinzufügen'),
     add: () => {
       s.todos.push(newTodo());
@@ -527,14 +739,14 @@ function songDetail(s: Song): HTMLElement {
   });
   if (!s.todos.length) hint(s3, t('z.B. Text Strophe 2, Bass einspielen, Klick prüfen'));
   for (const td of s.todos) {
+    const st = todoStatus(td);
     const r = el('div', 'todoRow' + (td.done ? ' done' : ''));
     const cb = el('input');
     cb.type = 'checkbox';
     cb.checked = td.done;
     cb.onchange = () => {
-      td.done = cb.checked;
+      setStatus(td, cb.checked ? 'done' : 'open');
       r.classList.toggle('done', td.done);
-      save();
     };
     const tx = input(td, 'text', t('Was ist zu tun?'));
     tx.onkeydown = (e) => {
@@ -546,9 +758,13 @@ function songDetail(s: Song): HTMLElement {
         all[s.todos.indexOf(td) + 1]?.focus();
       }
     };
-    r.append(cb, tx, iconBtn('xmark', t('Entfernen'), () => { s.todos = s.todos.filter((x) => x !== td); save(); render(); }, 'tb'));
+    r.append(cb, tx);
+    r.appendChild(el('span', 'tdState', st === 'doing' ? esc(t('In Arbeit')) : ''));
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { s.todos = s.todos.filter((x) => x !== td); save(); render(); }, 'tb'));
     s3.appendChild(r);
   }
+
+  renderSongIdeas(right, band, s.id, ideaHost(), render);
 
   const s4 = card(right, t('Sounds & Patches'), { addTip: t('Sound hinzufügen'), add: () => { s.sounds.push(newSound()); save(); render(); } });
   if (!s.sounds.length) hint(s4, t('Welcher Helix-/Amp-Sound in welchem Teil, z.B. Refrain → 02B Crunch'));
@@ -574,8 +790,77 @@ async function removeSong(s: Song) {
   if (!(await host.confirm(used ? t('„{x}“ steht in Setlists. Trotzdem entfernen?', { x: s.title }) : t('{x} entfernen?', { x: s.title || t('Song') })))) return;
   band.songs = band.songs.filter((x) => x !== s);
   for (const l of band.setlists) l.items = l.items.filter((it) => !(it.type === 'song' && it.song === s.id));
+  for (const it of band.ideas) if (it.song === s.id) it.song = '';
   save();
   render();
+}
+
+// ---------------- to-do board ----------------
+
+const COLS: [TodoStatus, string][] = [['open', 'Offen'], ['doing', 'In Arbeit'], ['done', 'Erledigt']];
+
+function renderBoard(main: HTMLElement) {
+  const board = el('div', 'kanban');
+  main.appendChild(board);
+  const items = allTodos();
+  COLS.forEach(([st, label], ci) => {
+    const col = el('section', 'kbCol');
+    col.dataset.status = st;
+    const inCol = items.filter((x) => todoStatus(x.td) === st);
+    col.appendChild(el('div', 'kbHead', `<h3>${esc(t(label))}</h3><span>${inCol.length}</span>`));
+    const list = el('div', 'kbList');
+    for (const { td, song } of inCol) {
+      const c = el('div', 'kbCard');
+      c.draggable = true;
+      c.dataset.id = td.id;
+      c.ondragstart = (e) => {
+        e.dataTransfer?.setData('text/plain', td.id);
+        c.classList.add('dragging');
+      };
+      c.ondragend = () => c.classList.remove('dragging');
+      c.appendChild(input(td, 'text', t('Was ist zu tun?')));
+      const foot = el('div', 'kbFoot');
+      const tag = el('button', 'kbSong', esc(song ? song.title || t('Ohne Titel') : t('Band')));
+      if (song) {
+        tag.dataset.tip = t('Song öffnen');
+        tag.onclick = () => {
+          selSong = song.id;
+          songSub = 'songs';
+          render();
+        };
+      } else tag.disabled = true;
+      foot.appendChild(tag);
+      foot.appendChild(el('span', 'spacer'));
+      if (ci > 0) foot.appendChild(iconBtn('arrowLeft', t('Nach „{x}“', { x: t(COLS[ci - 1][1]) }), () => { setStatus(td, COLS[ci - 1][0]); render(); }, 'tb'));
+      if (ci < COLS.length - 1) foot.appendChild(iconBtn('arrowRight', t('Nach „{x}“', { x: t(COLS[ci + 1][1]) }), () => { setStatus(td, COLS[ci + 1][0]); render(); }, 'tb'));
+      foot.appendChild(iconBtn('xmark', t('Entfernen'), () => {
+        if (song) song.todos = song.todos.filter((x) => x !== td);
+        else band.todos = band.todos.filter((x) => x !== td);
+        save();
+        render();
+      }, 'tb'));
+      c.appendChild(foot);
+      list.appendChild(c);
+    }
+    if (!inCol.length) list.appendChild(el('div', 'kbEmpty', esc(st === 'open' ? t('Neue To-dos mit „+ To-do“ oder im Song.') : t('Karten hierher ziehen'))));
+    col.appendChild(list);
+    col.ondragover = (e) => {
+      e.preventDefault();
+      col.classList.add('over');
+    };
+    col.ondragleave = () => col.classList.remove('over');
+    col.ondrop = (e) => {
+      e.preventDefault();
+      col.classList.remove('over');
+      const id = e.dataTransfer?.getData('text/plain');
+      const it = items.find((x) => x.td.id === id);
+      if (it) {
+        setStatus(it.td, st);
+        render();
+      }
+    };
+    board.appendChild(col);
+  });
 }
 
 // ---------------- setlists ----------------
@@ -940,15 +1225,44 @@ function renderMoney(d: HTMLElement, g: Gig, refreshItem: () => void) {
 
 // ---------------- wizards ----------------
 
-interface BandDraft { name: string; members: { name: string; role: string }[]; songs: string }
+interface BandDraft { name: string; members: { name: string; ins: string }[]; songs: ScoreInfo[] }
 
-/** first start (or a new band): name, members, songs */
+const insOptions = (): [string, string][] => [['', t('Instrument …')], ...INSTRUMENTS.map((x) => [x.id, t(x.label)] as [string, string])];
+
+/** list of picked score files with a drop zone (wizard step) */
+function scorePicker(box: HTMLElement, list: ScoreInfo[]) {
+  const z = el('div', 'dropZone', `${icon('upload', 22)}<b>${esc(t('Dateien hierher ziehen'))}</b><small>GP3–GP7, GPX, MusicXML, .tabw</small>`);
+  const pick = el('button', 'btn', `${icon('folder', 12)}<span>${esc(t('Dateien wählen …'))}</span>`);
+  pick.type = 'button';
+  const rows = el('div', 'wizPick');
+  const draw = () => {
+    rows.innerHTML = '';
+    list.forEach((f, i) => {
+      const r = el('div', 'wizPickRow on', `<span class="n">${i + 1}</span><span>${esc(f.title)}</span><span class="d">${f.duration ? fmtDur(f.duration) : ''}</span>`);
+      r.appendChild(iconBtn('xmark', t('Entfernen'), () => { list.splice(i, 1); draw(); }, 'tb'));
+      rows.appendChild(r);
+    });
+  };
+  const add = async (files: File[] | null) => {
+    for (const f of await host.importScores(files, true)) if (!list.some((x) => x.file === f.file)) list.push(f);
+    draw();
+  };
+  pick.onclick = () => void add(null);
+  const btns = el('div', 'dzBtns');
+  btns.appendChild(pick);
+  z.appendChild(btns);
+  dropTarget(z, (files) => void add(files));
+  box.append(z, rows);
+  draw();
+}
+
+/** first start (or a new band): name, members with instrument, songs from score files */
 export async function bandWizard(replace = false) {
   if (replace && bandReady() && !(await host.confirm(t('Neue Band einrichten? Die aktuelle Band wird ersetzt – speichere sie vorher als Datei.')))) return;
   let opened = false;
   const r = await wizard<BandDraft>({
     title: t('Band einrichten'),
-    state: { name: '', members: [{ name: '', role: '' }], songs: '' },
+    state: { name: '', members: [{ name: '', ins: '' }], songs: [] },
     finish: t('Band anlegen'),
     extra: (foot, close) => {
       const o = el('button', 'btn plain', esc(t('Band-Datei öffnen …')));
@@ -964,18 +1278,18 @@ export async function bandWizard(replace = false) {
         title: t('Wie heißt eure Band?'),
         text: t('Danach legst du Mitglieder und Songs an. Alles lässt sich später ändern.'),
         ok: (s) => !!s.name.trim(),
-        body: (box, s, redraw) => wizField(box, t('Name'), wizInput(s.name, t('z.B. Riverside Crow'), (v) => { s.name = v; redraw(); })),
+        body: (box, s, redraw) => wizField(box, t('Name'), wizInput(s.name, t('Name der Band'), (v) => { s.name = v; redraw(); })),
       },
       {
         title: t('Wer spielt mit?'),
-        text: t('Das Instrument hilft später bei Kanälen, Kabeln und dem Bühnenplan.'),
+        text: t('Das Instrument bestimmt später die Spur in Tabwriter, Kanäle und den Bühnenplan. Weitere Instrumente und Fotos fügst du auf der Band-Seite hinzu.'),
         body: (box, s) => {
           const list = el('div', 'wizRows');
           const draw = () => {
             list.innerHTML = '';
             s.members.forEach((m, i) => {
               const r = el('div', 'wizRow');
-              r.append(wizInput(m.name, t('Name'), (v) => (m.name = v)), wizInput(m.role, t('z.B. Gitarre, Gesang'), (v) => (m.role = v)));
+              r.append(wizInput(m.name, t('Name'), (v) => (m.name = v)), select(insOptions(), m.ins, (v) => (m.ins = v)));
               r.appendChild(iconBtn('xmark', t('Entfernen'), () => { s.members.splice(i, 1); draw(); }, 'tb'));
               list.appendChild(r);
             });
@@ -985,7 +1299,7 @@ export async function bandWizard(replace = false) {
           const add = el('button', 'btn plain', `${icon('plus', 12)}<span>${esc(t('Person'))}</span>`);
           add.type = 'button';
           add.onclick = () => {
-            s.members.push({ name: '', role: '' });
+            s.members.push({ name: '', ins: '' });
             draw();
             (list.lastElementChild?.querySelector('input') as HTMLInputElement | null)?.focus();
           };
@@ -993,30 +1307,25 @@ export async function bandWizard(replace = false) {
         },
       },
       {
-        title: t('Welche Songs spielt ihr?'),
-        text: t('Ein Titel pro Zeile. Kann leer bleiben.'),
+        title: t('Songs importieren'),
+        text: t('Wähle Guitar-Pro- oder Tabwriter-Dateien. Titel, Tempo und Länge werden übernommen. Kann leer bleiben.'),
         optional: true,
-        body: (box, s) => {
-          const ta = el('textarea', 'pInput notes');
-          ta.placeholder = t('Song 1\nSong 2\n…');
-          ta.value = s.songs;
-          ta.oninput = () => (s.songs = ta.value);
-          box.appendChild(ta);
-        },
+        body: (box, s) => scorePicker(box, s.songs),
       },
     ],
   });
   if (!r || opened) return;
   const b = newBand(r.name.trim());
+  band = b;
   for (const m of r.members.filter((x) => x.name.trim())) {
     const nm = newMember();
     nm.name = m.name.trim();
-    nm.role = m.role.trim();
     b.members.push(nm);
+    const p = instrumentOf(m.ins);
+    if (p) addGear(b, nm.id, p.gear, p.id);
   }
-  for (const line of r.songs.split('\n').map((x) => x.trim()).filter(Boolean)) b.songs.push({ ...newSong(line), phase: 'live' });
+  for (const f of r.songs) b.songs.push({ ...newSong(f.title), file: f.file, bpm: f.bpm, duration: f.duration });
   b.setup = true;
-  band = b;
   tab = 'home';
   save();
   host.flash(t('{x} ist angelegt', { x: b.name }));
@@ -1026,24 +1335,23 @@ export async function bandWizard(replace = false) {
 async function memberWizard() {
   const r = await wizard({
     title: t('Mitglied'),
-    state: { name: '', role: '', phone: '', email: '' },
+    state: { name: '', ins: '' },
     finish: t('Hinzufügen'),
     steps: [{
       title: t('Wer kommt dazu?'),
       ok: (s) => !!s.name.trim(),
       body: (box, s, redraw) => {
         wizField(box, t('Name'), wizInput(s.name, t('Name'), (v) => { s.name = v; redraw(); }));
-        wizField(box, t('Instrument / Rolle'), wizInput(s.role, t('z.B. Gitarre, Gesang'), (v) => (s.role = v)));
-        wizField(box, t('Telefon'), wizInput(s.phone, '+43 …', (v) => (s.phone = v)));
-        wizField(box, t('E-Mail'), wizInput(s.email, 'name@…', (v) => (s.email = v), 'email'));
+        wizField(box, t('Instrument'), select(insOptions(), s.ins, (v) => (s.ins = v)));
       },
     }],
   });
   if (!r) return;
-  const m = { ...newMember(), name: r.name.trim(), role: r.role.trim(), phone: r.phone.trim(), email: r.email.trim() };
+  const m = { ...newMember(), name: r.name.trim() };
   band.members.push(m);
+  const p = instrumentOf(r.ins);
+  if (p) addGear(band, m.id, p.gear, p.id);
   for (const g of band.gigs) if (g.date >= today() && g.lineup.length) g.lineup.push(m.id);
-  selMember = m.id;
   save();
   render();
 }
@@ -1052,19 +1360,43 @@ type SongSource = 'new' | 'open' | 'file' | 'none';
 
 async function songWizard() {
   const cur = host.currentSong();
-  const r = await wizard<{ src: SongSource; title: string; file: string }>({
+  const r = await wizard<{ src: SongSource; title: string; picked: ScoreInfo | null }>({
     title: t('Song'),
-    state: { src: cur ? 'open' : 'new', title: '', file: '' },
+    state: { src: cur ? 'open' : 'file', title: '', picked: null },
     finish: t('Anlegen'),
     steps: [
       {
         title: t('Woher kommen die Noten?'),
-        body: (box, s) => choices<SongSource>(box, [
-          ...(cur ? [{ k: 'open' as const, icon: 'music' as IconName, label: t('Offenen Song übernehmen'), sub: cur.title }] : []),
-          { k: 'new', icon: 'docPlus', label: t('Neu im Editor schreiben'), sub: t('Öffnet einen leeren Song in Tabwriter') },
-          { k: 'file', icon: 'folder', label: t('Vorhandene Datei verknüpfen'), sub: 'GP3–GP7, GPX, MusicXML, .tabw' },
-          { k: 'none', icon: 'textInfo', label: t('Noch keine Noten'), sub: t('Nur Titel und Steckbrief') },
-        ], s.src, (k) => (s.src = k)),
+        ok: (s) => s.src !== 'file' || !!s.picked,
+        body: (box, s, redraw) => {
+          choices<SongSource>(box, [
+            ...(cur ? [{ k: 'open' as const, icon: 'music' as IconName, label: t('Offenen Song übernehmen'), sub: cur.title }] : []),
+            { k: 'file', icon: 'folder', label: t('Vorhandene Datei'), sub: s.picked ? baseName(s.picked.file) : 'GP3–GP7, GPX, MusicXML, .tabw' },
+            { k: 'new', icon: 'docPlus', label: t('Neu im Editor schreiben'), sub: t('Öffnet einen leeren Song in Tabwriter') },
+            { k: 'none', icon: 'textInfo', label: t('Noch keine Noten'), sub: t('Nur Titel und Steckbrief') },
+          ], s.src, async (k) => {
+            s.src = k;
+            if (k === 'file' && !s.picked) {
+              const [f] = await host.importScores(null, false);
+              if (f) {
+                s.picked = f;
+                s.title = f.title;
+                const sub = box.querySelector('.wizChoice.on small');
+                if (sub) sub.textContent = baseName(f.file);
+              }
+            }
+            redraw();
+          });
+          dropTarget(box, async (files) => {
+            const [f] = await host.importScores(files.slice(0, 1), false);
+            if (!f) return;
+            s.src = 'file';
+            s.picked = f;
+            s.title = f.title;
+            box.querySelectorAll('.wizChoice').forEach((x) => x.classList.toggle('on', x.querySelector('small')?.textContent?.includes('GP') ?? false));
+            redraw();
+          });
+        },
       },
       {
         title: t('Wie heißt der Song?'),
@@ -1084,13 +1416,14 @@ async function songWizard() {
     s.duration = cur.duration;
     s.key = cur.key;
     s.file = cur.file;
-  } else if (r.src === 'file') {
-    const f = await host.pickFile();
-    if (f) s.file = f.file;
+  } else if (r.src === 'file' && r.picked) {
+    s.file = r.picked.file;
+    s.bpm = r.picked.bpm;
+    s.duration = r.picked.duration;
   }
   band.songs.push(s);
   selSong = s.id;
-  songFilter = '';
+  songSub = 'songs';
   save();
   if (r.src === 'new') {
     host.newSong(title);
@@ -1250,6 +1583,7 @@ async function importBand() {
     try {
       const raw = JSON.parse(await f.text());
       const b = normalize(raw);
+      migrate(b);
       if (bandReady() && !(await host.confirm(t('Aktuelle Band-Daten durch „{x}“ ersetzen?', { x: b.name })))) return;
       b.setup = true;
       band = b;

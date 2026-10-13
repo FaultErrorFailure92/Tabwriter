@@ -7,6 +7,8 @@ export interface Member {
   role: string; // e.g. "Gitarre, Gesang"
   phone: string;
   email: string;
+  /** small square photo as data URL */
+  photo?: string;
 }
 
 export interface Song {
@@ -21,6 +23,7 @@ export interface Song {
   album: string; // album / EP / collection
   todos: Todo[];
   sounds: SoundCue[]; // e.g. Helix patch per part
+  lyrics: string;
 }
 
 export type Phase = 'idea' | 'writing' | 'arrangement' | 'production' | 'released' | 'live';
@@ -34,11 +37,16 @@ export const PHASES: { id: Phase; label: string; color: string }[] = [
   { id: 'live', label: 'Live', color: '#ff375f' },
 ];
 
+export type TodoStatus = 'open' | 'doing' | 'done';
 export interface Todo {
   id: string;
   text: string;
   done: boolean;
+  /** kanban column; "done" mirrors status === 'done' */
+  status?: TodoStatus;
 }
+
+export const todoStatus = (td: Todo): TodoStatus => (td.done ? 'done' : td.status === 'doing' ? 'doing' : 'open');
 
 export interface SoundCue {
   id: string;
@@ -243,6 +251,8 @@ export interface GearItem {
   owner: OwnerType;
   ownerMember: string; // Member.id when owner = member
   onStage: boolean; // shows up on the stage plan
+  /** instrument preset id from the catalog (eg6, b4, drums, vocals …) */
+  preset?: string;
   x: number; // m from stage left (as seen from the audience)
   y: number; // m from the front edge
   note: string;
@@ -330,6 +340,17 @@ export interface Band {
   ideas: Idea[];
   /** set up via the wizard or opened from a file; without it the app runs as plain Tabwriter */
   setup?: boolean;
+  logo?: string;
+  contact: BandContact;
+  /** to-dos that belong to no song */
+  todos: Todo[];
+}
+
+export interface BandContact {
+  email: string;
+  phone: string;
+  web: string;
+  booking: string;
 }
 
 // ---------- helpers ----------
@@ -374,7 +395,7 @@ export function newCable(): Cable {
 export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
-  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [] };
+  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [] };
 }
 
 /** fill missing fields of older / hand-written files */
@@ -383,8 +404,11 @@ export function normalize(d: any): Band {
   const b = newBand(d.name ?? 'Band');
   b.setup = d.setup ?? !!(d.members?.length || d.songs?.length || d.gigs?.length || d.setlists?.length);
   b.members = d.members ?? [];
-  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [] }));
+  b.songs = (d.songs ?? []).map((s: Song) => ({ ...newSong(), ...s, todos: s.todos ?? [], sounds: s.sounds ?? [], lyrics: s.lyrics ?? '' }));
   b.setlists = d.setlists ?? [];
+  b.logo = d.logo;
+  b.contact = { ...b.contact, ...(d.contact ?? {}) };
+  b.todos = d.todos ?? [];
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) } }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
@@ -404,7 +428,7 @@ export function newMember(): Member {
 }
 
 export function newSong(title = ''): Song {
-  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [] };
+  return { id: uid('s'), title, duration: 0, bpm: 0, key: '', file: '', notes: '', phase: 'writing', album: '', todos: [], sounds: [], lyrics: '' };
 }
 
 export function newTodo(text = ''): Todo {

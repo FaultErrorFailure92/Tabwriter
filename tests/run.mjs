@@ -216,19 +216,18 @@ async function bandWizard(name, members) {
   await page.keyboard.press('Enter');
   for (let i = 0; i < members.length; i++) {
     if (i) await page.click('.wizBody .btn.plain');
-    const ins = await (await page.$$('.wizRow'))[i].$$('input');
-    await ins[0].fill(members[i][0]);
-    await ins[1].fill(members[i][1]);
+    const row = (await page.$$('.wizRow'))[i];
+    await (await row.$('input')).fill(members[i][0]);
+    await (await row.$('select')).selectOption(members[i][1]);
   }
   await page.click('.wizFoot .btn.primary');
-  await page.fill('.wizBody textarea', 'Song A\nSong B');
   await page.click('.wizFoot .btn.primary');
   await page.waitForSelector('#band:not(.hidden) .bandSw');
 }
 
 await test('Tabwriter works without a band', async () => {
   await page.waitForSelector('.flowSetup');
-  await page.click('#libDemo');
+  await page.evaluate(() => window.app.run('demo'));
   await page.waitForTimeout(600);
   const inEditor = await page.evaluate(() => document.getElementById('library').classList.contains('hidden') && document.getElementById('band').classList.contains('hidden'));
   await page.click('#homeBtn');
@@ -237,13 +236,13 @@ await test('Tabwriter works without a band', async () => {
 });
 
 await test('Band wizard: band shell with overview', async () => {
-  await bandWizard('Testband', [['A', 'Gitarre, Gesang'], ['B', 'Drums']]);
-  const r = await page.evaluate(() => [document.querySelector('.bandSw b').textContent, document.querySelector('.bandNav.home.on') !== null, !!document.querySelector('#band .libActions')]);
-  eq(r, ['Testband', true, true], 'name, overview, Tabwriter block');
+  await bandWizard('Testband', [['A', 'eg6'], ['B', 'drums']]);
+  const r = await page.evaluate(() => [document.querySelector('.bandSw b').textContent, document.querySelector('.bandNav.home.on') !== null, document.querySelectorAll('#band .homeGrid .gigSec').length]);
+  eq(r, ['Testband', true, 3], 'name, overview, cards');
 });
 
 await test('Stage: input list and cables suggested from gear', async () => {
-  await bandWizard('Testband', [['A', 'Gitarre, Gesang'], ['B', 'Drums']]);
+  await bandWizard('Testband', [['A', 'eg6'], ['B', 'drums']]);
   await page.keyboard.press('Meta+3');
   await page.click('.seg.tabs button:nth-child(3)');
   await page.click('.secTools .tb:not(.add)');
@@ -252,7 +251,7 @@ await test('Stage: input list and cables suggested from gear', async () => {
 });
 
 await test('Gig wizard and presale tab', async () => {
-  await bandWizard('Testband', [['A', 'Bass']]);
+  await bandWizard('Testband', [['A', 'b4']]);
   await page.keyboard.press('Meta+5');
   await page.click('.pageHead .btn.primary');
   await page.fill('.wizBody input[type=text]', 'Club');
@@ -265,8 +264,8 @@ await test('Gig wizard and presale tab', async () => {
 });
 
 await test('Navigation: overview from every page, back to the editor', async () => {
-  await bandWizard('Testband', [['A', 'Bass']]);
-  await page.click('.libActions .tile:nth-child(3)');
+  await bandWizard('Testband', [['A', 'b4']]);
+  await page.evaluate(() => window.app.run('demo'));
   await page.waitForTimeout(600);
   await page.click('#homeBtn');
   await page.keyboard.press('Meta+2');
@@ -275,6 +274,31 @@ await test('Navigation: overview from every page, back to the editor', async () 
   await page.click('#homeBtn');
   const home = await page.evaluate(() => !!document.querySelector('.bandNav.home.on'));
   eq([inEditor, home], [true, true], 'editor, overview');
+});
+
+await test('Tabwriter: track for a band member with the right sound', async () => {
+  await bandWizard('Testband', [['Kim', 'b5'], ['Lou', 'drums']]);
+  await page.evaluate(() => window.app.run('demo'));
+  await page.waitForTimeout(600);
+  await page.click('#addTrack');
+  const items = await page.$$eval('#trackMenu .menuHead', (x) => x.map((e) => e.textContent));
+  await page.click('#trackMenu button:has-text("E-Bass (5 Saiten)")');
+  const r = await page.evaluate(() => {
+    const tr = window.app.editor.score.tracks.at(-1);
+    return [tr.name, tr.playbackInfo.program, tr.staves[0].tuning.length];
+  });
+  eq([items, r], [['Kim', 'Lou'], ['Kim – E-Bass (5 Saiten)', 33, 5]], 'menu, track');
+});
+
+await test('Songs: to-do board moves cards between columns', async () => {
+  await bandWizard('Testband', [['A', 'b4']]);
+  await page.keyboard.press('Meta+2');
+  await page.click('.seg.tabs button:nth-child(2)');
+  await page.click('.pageHead .btn.primary');
+  await page.fill('.kbCard input', 'Flyer drucken');
+  await page.click('.kbCard .tb[data-tip^="Nach"]');
+  const r = await page.evaluate(() => [...document.querySelectorAll('.kbCol')].map((c) => c.querySelectorAll('.kbCard').length));
+  eq(r, [0, 1, 0], 'card in "In Arbeit"');
 });
 
 await test('No uncaught errors', async () => {
