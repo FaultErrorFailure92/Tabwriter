@@ -29,6 +29,70 @@ export interface BandHost {
   currentSong(): CurrentSong | null;
   flash(msg: string): void;
   confirm(msg: string): Promise<boolean>;
+  /** songs from the library: file = path (desktop) or file name (browser) */
+  recentFiles(): { label: string; file: string }[];
+  /** choose a file on disk and keep it in the library; returns its file key */
+  pickFile(): Promise<{ label: string; file: string } | null>;
+  /** open the score in the editor; false if not found */
+  openFile(file: string): Promise<boolean>;
+}
+
+const baseName = (f: string) => f.split(/[\\/]/).pop() ?? f;
+
+async function openSongFile(file: string) {
+  if (!(await host.openFile(file))) host.flash(t('Datei nicht gefunden: {x}', { x: baseName(file) }));
+  else closeBand();
+}
+
+function linkMenu(anchor: HTMLElement, s: { file: string; title: string }) {
+  document.getElementById('linkPop')?.remove();
+  const pop = el('div', 'pop menuPop');
+  pop.id = 'linkPop';
+  const item = (ic: Parameters<typeof icon>[0], label: string, fn: () => void, cls = '') => {
+    const btn = el('button', cls, `<i>${icon(ic)}</i><span>${esc(label)}</span>`);
+    btn.onclick = () => {
+      pop.remove();
+      fn();
+    };
+    pop.appendChild(btn);
+  };
+  item('folder', t('Datei wählen …'), async () => {
+    const f = await host.pickFile();
+    if (!f) return;
+    s.file = f.file;
+    if (!s.title) s.title = f.label;
+    save();
+    render();
+  });
+  const recent = host.recentFiles();
+  if (recent.length) pop.appendChild(el('hr'));
+  for (const r of recent.slice(0, 12)) {
+    item(r.file === s.file ? 'checkmark' : 'doc', r.label, () => {
+      s.file = r.file;
+      if (!s.title) s.title = r.label;
+      save();
+      render();
+    });
+  }
+  if (s.file) {
+    pop.appendChild(el('hr'));
+    item('unlink', t('Verknüpfung lösen'), () => {
+      s.file = '';
+      save();
+      render();
+    }, 'danger');
+  }
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  pop.style.left = `${Math.min(window.innerWidth - pr.width - 8, r.left)}px`;
+  pop.style.top = `${Math.min(window.innerHeight - pr.height - 8, r.bottom + 4)}px`;
+  setTimeout(() => document.addEventListener('mousedown', function off(e) {
+    if (!pop.contains(e.target as Node)) {
+      pop.remove();
+      document.removeEventListener('mousedown', off);
+    }
+  }), 0);
 }
 
 let band: Band = newBand();
@@ -193,13 +257,22 @@ function renderSongs(main: HTMLElement) {
   }, cur);
   if (!band.songs.length) return empty(main, t('Noch keine Songs. Übernimm den offenen Song oder lege einen mit + an.'));
   const tbl = el('div', 'bandTable');
-  tbl.appendChild(el('div', 'row head songs', `<span>${t('Titel')}</span><span>${t('Länge')}</span><span>${t('BPM')}</span><span>${t('Tonart')}</span><span>${t('Notiz')}</span><span></span>`));
+  tbl.appendChild(el('div', 'row head songs', `<span>${t('Titel')}</span><span>${t('Länge')}</span><span>${t('BPM')}</span><span>${t('Tonart')}</span><span>${t('Notiz')}</span><span>${t('Datei')}</span><span></span>`));
   for (const s of band.songs) {
     const r = el('div', 'row songs');
     const bpm = input(s, 'bpm', '–', undefined, 'pInput num', 'number');
     if (!s.bpm) bpm.value = '';
     r.append(input(s, 'title', t('Titel')), durInput(s), bpm, input(s, 'key', 'z.B. Em'), input(s, 'notes', t('z.B. Capo 2, Fade-Out')));
-    if (s.file) r.children[0].setAttribute('data-tip', s.file);
+    const fileCell = el('span', 'fileCell');
+    if (s.file) {
+      const open = el('button', 'fileBtn', `${icon('doc', 13)}<span>${esc(baseName(s.file))}</span>`);
+      open.dataset.tip = t('Im Editor öffnen');
+      open.onclick = () => void openSongFile(s.file);
+      fileCell.appendChild(open);
+    }
+    const lk = iconBtn('link', s.file ? t('Andere Datei verknüpfen') : t('Mit Datei verknüpfen'), () => linkMenu(lk, s), 'tb');
+    fileCell.appendChild(lk);
+    r.appendChild(fileCell);
     r.appendChild(iconBtn('trash', t('Entfernen'), async () => {
       const used = band.setlists.some((l) => l.items.some((it) => it.type === 'song' && it.song === s.id));
       if (!(await host.confirm(used ? t('„{x}“ steht in Setlists. Trotzdem entfernen?', { x: s.title }) : t('{x} entfernen?', { x: s.title || t('Song') })))) return;
@@ -282,7 +355,12 @@ function setlistDetail(l: Setlist): HTMLElement {
       n++;
       const s = band.songs.find((x) => x.id === it.song);
       r.appendChild(el('span', 'num', String(n)));
-      r.appendChild(el('span', 'name', esc(s?.title || t('(gelöschter Song)'))));
+      const nm = el('span', 'name' + (s?.file ? ' link' : ''), esc(s?.title || t('(gelöschter Song)')));
+      if (s?.file) {
+        nm.dataset.tip = t('Im Editor öffnen');
+        nm.onclick = () => void openSongFile(s.file);
+      }
+      r.appendChild(nm);
       const meta = [s?.key, s?.bpm ? `${s.bpm} bpm` : ''].filter(Boolean).join(' · ');
       r.appendChild(el('span', 'meta', esc(meta)));
       r.appendChild(input(it, 'note', t('Notiz, z.B. Fade-Out'), undefined, 'pInput note'));

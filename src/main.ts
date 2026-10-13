@@ -675,6 +675,12 @@ $('overview').addEventListener('mousedown', (e) => {
 });
 
 // ---------------- band (Stagecraft) ----------------
+/** how the open song is found again: real path (desktop) or its library file name */
+function currentFileKey(): string {
+  if (typeof saveHandle === 'string') return saveHandle;
+  const it = listRecent().find((x) => x.fileName.replace(/\.[^.]+$/, '') === fileName);
+  return it?.path ?? it?.fileName ?? '';
+}
 /** song length in seconds (repeats ignored), tempo of bar 1 */
 function songDuration(): number {
   const bpm = getTempo(editor.score) || 120;
@@ -689,9 +695,29 @@ function songDuration(): number {
   return Math.round(((ticks + rep) / 960) * (60 / bpm));
 }
 void initBand({
-  currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: typeof saveHandle === 'string' ? saveHandle : fileName } : null),
+  currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: currentFileKey() } : null),
   flash: (m) => flash(m),
   confirm: (m) => confirmAsk(m),
+  recentFiles: () => listRecent().map((it) => ({ label: it.title || it.fileName, file: it.path ?? it.fileName })),
+  pickFile: async () => {
+    const f = await pickFile($<HTMLInputElement>('fileInput'));
+    if (!f) return null;
+    const path = typeof f.handle === 'string' ? f.handle : undefined;
+    await addRecent({ title: f.name.replace(/\.[^.]+$/, ''), artist: '', fileName: f.name, path, tracks: [] }, f.bytes);
+    return { label: f.name.replace(/\.[^.]+$/, ''), file: path ?? f.name };
+  },
+  openFile: async (file) => {
+    const it = listRecent().find((x) => x.path === file || x.fileName === file);
+    if (it) {
+      await openRecent(it);
+      return true;
+    }
+    if (isTauri() && /[\\/]/.test(file)) {
+      await openPath(file);
+      return true;
+    }
+    return false;
+  },
 });
 $('bandBtn').onclick = () => {
   $('bandBtn').blur();

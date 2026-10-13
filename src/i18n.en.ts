@@ -617,4 +617,10 @@ export const EN: Record<string, string> = {
   "z.B. Insert Comp": "e.g. insert comp",
   "z.B. Kick": "e.g. kick",
   "z.B. Mischpult, PA, Stagebox, Strom": "e.g. mixer, PA, stagebox, power",
+  "Datei wählen …": "Choose file …",
+  "Verknüpfung lösen": "Unlink",
+  "Im Editor öffnen": "Open in editor",
+  "Andere Datei verknüpfen": "Link another file",
+  "Mit Datei verknüpfen": "Link to file",
+  "Datei nicht gefunden: {x}": "File not found: {x}",
 };
