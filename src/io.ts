@@ -55,6 +55,7 @@ export const GP7: FileType = { desc: 'Guitar Pro 7', ext: 'gp', mime: 'applicati
 export const MIDI: FileType = { desc: 'MIDI', ext: 'mid', mime: 'audio/midi' };
 export const GP5: FileType = { desc: 'Guitar Pro 5', ext: 'gp5', mime: 'application/octet-stream' };
 export const TABW: FileType = { desc: 'Tabwriter', ext: 'tabw', mime: 'application/json' };
+export const ZIP: FileType = { desc: 'ZIP', ext: 'zip', mime: 'application/zip' };
 export const WAV: FileType = { desc: 'WAV Audio', ext: 'wav', mime: 'audio/wav' };
 
 export interface SaveResult {

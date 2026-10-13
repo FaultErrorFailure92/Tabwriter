@@ -7,7 +7,7 @@ export const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigato
 
 export type Action =
   | 'about' | 'prefs' | 'updates' | 'quit'
-  | 'new' | 'open' | 'library' | 'save' | 'saveas' | 'export-gp' | 'export-gp5' | 'export-midi' | 'export-wav' | 'print' | 'meta'
+  | 'new' | 'open' | 'library' | 'save' | 'saveas' | 'export-gp' | 'export-gp5' | 'export-midi' | 'export-wav' | 'export-reaper' | 'print' | 'meta'
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
@@ -52,6 +52,7 @@ export async function setupMenu(run: (a: Action) => void) {
       item('export-gp', t('Guitar Pro 7 (.gp) …')),
       item('export-midi', t('MIDI …')),
       item('export-wav', t('Audio (WAV) …')),
+      item('export-reaper', t('Für Reaper (MIDI, Klick, Marker) …')),
     ]),
   });
   const file = await Submenu.new({

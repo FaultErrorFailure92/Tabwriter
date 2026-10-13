@@ -5,11 +5,12 @@ import { renderOverview } from './overview';
 import { initLang, t, translateDom, currentLang } from './i18n';
 import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
-import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW } from './io';
+import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
 import { initBand, openBand, closeBand, bandOpen, STEPS, stepStatus, bandName, type BandTab } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
+import { reaperZip } from './reaper';
 import { openPrintDialog } from './print';
 import { detectChord, beatMidi, chordOf, lyricOf } from './chords';
 type Arrangement = A.Arrangement;
@@ -1772,6 +1773,17 @@ async function exportFile(kind: 'gp' | 'gp5' | 'midi') {
   }
 }
 
+async function exportReaper() {
+  try {
+    const bytes = reaperZip(editor.score, api.settings, baseName());
+    const r = await saveFile(`${baseName()} (Reaper).zip`, bytes, undefined, ZIP);
+    if (r) flash(t('Exportiert: {x}', { x: r.name }));
+  } catch (e: any) {
+    flash(t('Export fehlgeschlagen: {x}', { x: e?.message ?? String(e) }));
+    console.error(e);
+  }
+}
+
 async function exportWav() {
   if (!api.isReadyForPlayback) {
     flash(t('Sound lädt noch …'));
@@ -2413,6 +2425,7 @@ function run(a: Action) {
     case 'export-gp5': void exportFile('gp5'); break;
     case 'export-midi': void exportFile('midi'); break;
     case 'export-wav': void exportWav(); break;
+    case 'export-reaper': void exportReaper(); break;
     case 'print': void doPrint(); break;
     case 'meta': openMeta(); break;
     case 'undo':

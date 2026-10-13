@@ -686,4 +686,6 @@ export const EN: Record<string, string> = {
   "Patch, z.B. 02B Crunch": "Patch, e.g. 02B Crunch",
   "ganzer Song": "whole song",
   "{n} Songs": "{n} songs",
+  "Für Reaper (MIDI, Klick, Marker) …": "For Reaper (MIDI, click, markers) …",
+  "Für Reaper exportieren …": "Export for Reaper …",
 };
