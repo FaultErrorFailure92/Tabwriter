@@ -185,6 +185,8 @@ export interface Rider {
   monitorsMin: number;
   plotVersion: string;
   lang?: 'de' | 'en';
+  /** own sections (Markdown) */
+  custom?: { id: string; title: string; text: string }[];
 }
 
 export function newRider(): Rider {
@@ -353,6 +355,8 @@ export interface GearItem {
   onStage: boolean; // shows up on the stage plan
   /** instrument preset id from the catalog (eg6, b4, drums, vocals …) */
   preset?: string;
+  /** rotation on the stage plan in degrees (45° steps) */
+  rot?: number;
   x: number; // m from stage left (as seen from the audience)
   y: number; // m from the front edge
   note: string;
@@ -448,7 +452,29 @@ export interface Band {
   rider: Rider;
   /** days a member has no time: "YYYY-MM-DD" */
   away: Away[];
+  /** social media and streaming profiles */
+  links: BandLink[];
 }
+
+export interface BandLink {
+  id: string;
+  kind: string; // instagram, facebook, tiktok, youtube, spotify, apple, bandcamp, soundcloud, website, other
+  url: string;
+}
+
+export const LINK_KINDS: [string, string, string][] = [
+  ['instagram', 'Instagram', 'https://instagram.com/…'],
+  ['facebook', 'Facebook', 'https://facebook.com/…'],
+  ['tiktok', 'TikTok', 'https://tiktok.com/@…'],
+  ['youtube', 'YouTube', 'https://youtube.com/@…'],
+  ['spotify', 'Spotify', 'https://open.spotify.com/artist/…'],
+  ['apple', 'Apple Music', 'https://music.apple.com/…'],
+  ['bandcamp', 'Bandcamp', 'https://….bandcamp.com'],
+  ['soundcloud', 'SoundCloud', 'https://soundcloud.com/…'],
+  ['website', 'Website', 'https://…'],
+  ['linktree', 'Linktree', 'https://linktr.ee/…'],
+  ['other', 'Link', 'https://…'],
+];
 
 export interface Away {
   id: string;
@@ -507,7 +533,7 @@ export function newCable(): Cable {
 export const STAGE_KINDS: GearKind[] = ['drums', 'keys', 'amp', 'monitor', 'di', 'power', 'pa', 'mic'];
 
 export function newBand(name = 'Meine Band'): Band {
-  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [], crew: [], rider: newRider(), away: [] };
+  return { app: 'stagecraft', version: 1, name, members: [], songs: [], setlists: [], gigs: [], gear: emptyGear(), ideas: [], contact: { email: '', phone: '', web: '', booking: '' }, todos: [], crew: [], rider: newRider(), away: [], links: [] };
 }
 
 /** fill missing fields of older / hand-written files */
@@ -524,6 +550,7 @@ export function normalize(d: any): Band {
   b.crew = d.crew ?? [];
   b.rider = { ...newRider(), ...(d.rider ?? {}) };
   b.away = d.away ?? [];
+  b.links = d.links ?? [];
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) }, crew: g.crew ?? [], docs: g.docs ?? [], photos: g.photos ?? [] }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};

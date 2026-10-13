@@ -6,7 +6,7 @@ export const isDesktop = () => !!T();
 export const isMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 export type Action =
-  | 'about' | 'prefs' | 'updates' | 'quit'
+  | 'about' | 'prefs' | 'updates' | 'quit' | 'feedback'
   | 'new' | 'open' | 'library' | 'save' | 'saveas' | 'export-gp' | 'export-gp5' | 'export-midi' | 'export-wav' | 'export-reaper' | 'print' | 'meta'
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
@@ -126,6 +126,7 @@ export async function setupMenu(run: (a: Action) => void) {
       item('help', t('Tastenkürzel')),
       item('onboarding', t('Erste Schritte')),
       item('demo', t('Demo-Song öffnen')),
+      item('feedback', t('Feedback geben …')),
     ]),
   });
   const menu = await Menu.new({ items: [app, file, edit, view, play, win, help] });

@@ -1506,6 +1506,7 @@ body:not(.tauri) .bandSide { padding-top: 14px; }
 .gigSec, .gearCard {
   margin: 0; background: var(--paper); border-radius: 11px; box-shadow: var(--shadow-sm); padding: 0 14px 12px;
 }
+.bandMain > .gigSec, .bandMain > .gearCard { flex-shrink: 0; }
 .bandMain > .gigSec + .gigSec, .bandMain > .gearCard + .gearCard, .bandMain > .gearCard + .gigSec { margin-top: 14px; }
 .gigSec .secTop, .gearHead {
   display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 -14px 10px; padding: 0 10px 0 14px;
@@ -1879,3 +1880,90 @@ textarea.pInput.notes.small { min-height: 60px; }
 #printArea .plotOnly svg { width: 100%; height: auto; }
 .setRow .pInput.num, .setRow .pInput.key, .setRow .pInput.tun, .setRow .pInput.dur { padding-left: 4px; padding-right: 2px; }
 .setRow input[type=number]::-webkit-inner-spin-button { display: none; }
+.rotRow { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 4px; }
+.rotRow .chipBtn { height: 22px; padding: 0 7px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.linkRow2 { display: grid; grid-template-columns: 120px minmax(0, 1fr) 22px 22px; gap: 6px; align-items: center; padding: 3px 0; }
+.linkRow2 .lk { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.linkRow2 .lk svg { color: var(--accent); }
+.linkRow2 a.tb { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; color: var(--label3); }
+.linkRow2:not(:hover) .tb { visibility: hidden; }
+.riderPreview .paper blockquote { margin: 4px 0 8px; padding-left: 10px; border-left: 3px solid #bbb; color: #444; }
+.riderPreview .paper h4 { font-size: 12.5px; margin: 10px 0 4px; }
+.secRow.custom .pInput.nm { flex: 1; font-weight: 500; }
+
+/* ---------- phone layout ---------- */
+.mTop, .mBack { display: none; }
+@media (max-width: 760px) {
+  #band { flex-direction: column; }
+  .bandSide {
+    order: 2; position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; width: auto; height: calc(58px + env(safe-area-inset-bottom));
+    flex-direction: row; justify-content: space-around; align-items: flex-start; gap: 0; padding: 6px 4px env(safe-area-inset-bottom);
+    border-right: 0; border-top: 0.5px solid var(--sep);
+  }
+  .bandSide .bandSw, .bandSide .acct, .bandSide .bandNavSep, .bandSide .spacer, .bandSide .bandNav.sub, .bandSide .feedbackBtn { display: none; }
+  .bandNav { flex: 1; min-width: 0; height: 46px; padding: 2px 0; flex-direction: column; justify-content: center; gap: 3px; border-radius: 9px; }
+  .bandNav .step, .bandNav .cnt, .bandNav kbd { display: none; }
+  .bandNav .lbl { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .bandNav svg { width: 20px; height: 20px; }
+  .bandNav.on { background: none; color: var(--accent); }
+  .bandMain { padding: 0 14px calc(80px + env(safe-area-inset-bottom)); }
+  .mTop { display: flex; align-items: center; gap: 8px; position: sticky; top: 0; z-index: 4; margin: 0 -14px 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; background: var(--content); box-shadow: inset 0 -0.5px 0 var(--sep); }
+  .mBand { display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--label); font: 600 15px var(--font-display); padding: 0; }
+  .mBand .bandLogo { width: 28px; height: 28px; }
+  .mTop .spacer { flex: 1; }
+  .pageHead { margin-bottom: 12px; gap: 8px; }
+  .pageRow h2 { font-size: 24px; }
+  .pageRow .btn.primary span { display: none; }
+  .pageRow .btn.primary { width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 17px; }
+  .seg.tabs { max-width: 100%; overflow-x: auto; }
+  .gigCols, .gigCols.wideLeft, .gigCols.wideRight, .homeGrid, .kanban, .tkSummary { grid-template-columns: minmax(0, 1fr) !important; }
+  .bandSplit { flex-direction: column; align-items: stretch; }
+  .bandList { width: auto; }
+  .bandSplit .bandDetail { display: none; }
+  .bandSplit.showDetail .bandList { display: none; }
+  .bandSplit.showDetail .bandDetail { display: flex; }
+  .pageHead:has(~ .bandSplit.showDetail), .pageHead:has(+ .bandSplit.showDetail) { display: none; }
+  .homeGrid { align-items: start; }
+  .homeGrid > .gigSec { min-height: 0; }
+  .bandItem { padding: 10px 12px; }
+  .mBack { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; border: 0; background: none; color: var(--accent); font: 15px var(--font); padding: 4px 0; }
+  .dRow .bandTitle { font-size: 22px; }
+  .gigSec { overflow-x: auto; }
+  .gigField { grid-template-columns: 96px minmax(0, 1fr) auto; }
+  .setItems, .bandTable, .buyerRow, .docRow { min-width: 520px; }
+  .gigSec .setItems, .gigSec .bandTable { min-width: 560px; }
+  .crewL2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .memberRow { align-items: flex-start; }
+  .calBar .calWhoL { display: none; }
+  .calDay { min-height: 58px; padding: 3px; }
+  .calGig span { display: none; }
+  .calGig { justify-content: center; padding: 2px; }
+  .awayTag { font-size: 9px; padding: 0 3px; }
+  .planWrap { flex-direction: column; }
+  .planSide { width: auto; }
+  .card.wizard { width: 100vw; max-width: 100vw; border-radius: 16px 16px 0 0; align-self: flex-end; max-height: 92vh; overflow: auto; }
+  .wizOverlay { align-items: flex-end; }
+  .riderPreview .paper { padding: 14px; }
+  .pInput, select.pInput { font-size: 16px; } /* no zoom on focus (iOS) */
+  .tbtn, .tb { min-width: 30px; min-height: 30px; }
+  /* Tabwriter on a phone: score + transport, panels stay hidden */
+  #left, #right { display: none !important; }
+  #top .lcdScreen, #leftBtn, #panelBtn, #midiBtn, #fbBtn, #ovBtn, #subtitle { display: none !important; }
+  #top { padding-left: 8px; padding-right: 8px; gap: 6px; }
+  #title { width: 110px; }
+}
+.sideFoot { display: flex; align-items: center; gap: 4px; }
+.sideFoot .acct { flex: 1; min-width: 0; }
+.wizToggle { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--label2); margin-top: 4px; }
+
+/* touch: no hover, so row tools stay visible */
+@media (hover: none) {
+  #band .tb, #band .tools, #band .grip, #band .shop, #band .verTools .btn { visibility: visible !important; }
+}
+@media (max-width: 760px) {
+  .histRow, .rcRow, .contactRow { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 4px; }
+  .histRow > .tb, .rcRow > .tb, .contactRow > .tb { grid-column: 2; justify-self: end; }
+  .linkRow2 { grid-template-columns: 100px minmax(0, 1fr) 22px 22px; }
+  .histRow > *, .rcRow > *, .linkRow2 > *, .contactRow > * { min-width: 0; }
+  .histRow, .rcRow { padding-bottom: 6px; border-bottom: 0.5px solid var(--sep); margin-bottom: 6px; }
+}

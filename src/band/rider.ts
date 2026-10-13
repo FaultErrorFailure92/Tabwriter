@@ -6,6 +6,7 @@ import { icon } from '../icons';
 import { el, esc, input, select, iconBtn, save } from './dom';
 import { card, row, hint, toggle, columns, type MenuItem } from './kit';
 import { openPrintDialog } from '../print';
+import { md } from './md';
 import { type Band, type Gig, type GearItem, type GearKind, type Rider, GEAR_KINDS, uid } from './model';
 import { instrumentOf, GEAR_CATALOG } from './catalog';
 import { chainOf, gearLabel } from './gear';
@@ -140,7 +141,7 @@ function text(b: Band, id: string, g: Gig | null): string {
   const r = b.rider;
   return fill(b, r.texts[id] ?? DEFAULTS[id]?.[lang(r) === 'en' ? 1 : 0] ?? '', g);
 }
-const paras = (s: string) => s.split('\n').filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join('');
+const paras = (s: string) => md(s.replace(/\n(?!\n)/g, '\n\n').replace(/\n{3,}/g, '\n\n').replace(/\n\n(?=\s*([-*•]|\d+[.)])\s)/g, '\n'));
 
 function members(b: Band, g: Gig | null) {
   return g && g.lineup.length ? b.members.filter((m) => g.lineup.includes(m.id)) : b.members;
@@ -211,11 +212,13 @@ export function riderHtml(b: Band, g: Gig | null): string {
 
   if (on('history') && r.history.length) h += sec('history', 'history') + `<table class="grid"><tr><th>${esc(L(lg, 'version'))}</th><th>${esc(L(lg, 'date'))}</th><th>${esc(L(lg, 'changes'))}</th><th>${esc(L(lg, 'by'))}</th></tr>${r.history.map((v) => `<tr><td>${esc(v.version)}</td><td>${esc(v.date)}</td><td>${esc(v.changes)}</td><td>${esc(initials(personName(b, v.by)))}</td></tr>`).join('')}</table>`;
   if (on('agreement')) h += sec('agreement', 'agreement') + paras(text(b, 'agreement', g));
-  if (on('contact') && (r.contacts.length || b.contact.email)) {
+  if (on('contact') && (r.contacts.length || b.contact.email || b.contact.web || b.links.some((l) => l.url))) {
     const rows = r.contacts.length
       ? r.contacts.map((c) => `<tr><td>${esc(c.topic)}</td><td>${esc([personName(b, c.person), c.phone, c.email || b.contact.email].filter(Boolean).join(' / '))}</td></tr>`).join('')
       : `<tr><td>${esc(b.name)}</td><td>${esc([b.contact.phone, b.contact.email, b.contact.web].filter(Boolean).join(' / '))}</td></tr>`;
-    h += sec('contact', 'contact') + `<table class="grid"><tr><th>${esc(L(lg, 'topic'))}</th><th>${esc(L(lg, 'contact'))}</th></tr>${rows}</table>`;
+    const web = [b.contact.web, ...b.links.filter((l) => l.url).map((l) => l.url)].filter(Boolean);
+    const webRow = web.length ? `<tr><td>${esc(lg === 'en' ? 'Web & Social Media' : 'Web & Social Media')}</td><td>${web.map((u) => esc(u.replace(/^https?:\/\//, ''))).join('<br>')}</td></tr>` : '';
+    h += sec('contact', 'contact') + `<table class="grid"><tr><th>${esc(L(lg, 'topic'))}</th><th>${esc(L(lg, 'contact'))}</th></tr>${rows}${webRow}</table>`;
   }
   if (on('band')) {
     const rows = [...members(b, g).map((m) => [`${m.name} (${initials(m.name)})`, roleOf(b, m.id, lg)]), ...crewOf(b, g).map((c) => [c.name, c.role])];
@@ -285,6 +288,7 @@ export function riderHtml(b: Band, g: Gig | null): string {
       : (lg === 'en' ? `For the entire crew of ${b.name} the same backstage and catering arrangements apply as for the band itself.` : `Für die gesamte Crew gelten dieselben Backstage- und Catering-Regeln wie für die Band.`));
     h += `<h3>${esc(L(lg, 'photo'))}</h3>` + paras(fill(b, tx, g));
   }
+  for (const cs of r.custom ?? []) if (on(cs.id) && (cs.title || cs.text)) h += `<h2>${esc(cs.title)}</h2>` + md(fill(b, cs.text, g));
   if (on('thanks')) h += sec('thanks', 'thanks') + paras(text(b, 'thanks', g));
   if (on('plot')) h += `<div class="plotPage">${plotSvg(b, g, lg)}</div>`;
   return h;
@@ -323,6 +327,9 @@ export function plotSvg(b: Band, g: Gig | null, lg: Lang = lang(b.rider)): strin
   for (const it of onStage) {
     const cx = X(it.x);
     const cy = Y(it.y);
+    const prev = o;
+    o = '';
+    do {
     if (it.kind === 'drums') {
       const w = 2.2 * sx;
       const h = 2 * sy;
@@ -330,21 +337,21 @@ export function plotSvg(b: Band, g: Gig | null, lg: Lang = lang(b.rider)): strin
       const kit: [number, number, number, string][] = [[-0.62, -0.1, 0.36, '#ddd'], [-0.3, -0.38, 0.22, '#ddd'], [0, 0.1, 0.42, '#fff'], [0.42, -0.24, 0.28, '#fff'], [0.66, -0.4, 0.22, '#ddd'], [0.6, 0.12, 0.32, '#ddd'], [-0.28, 0.14, 0.3, '#fff']];
       for (const [dx, dy, r, f] of kit) o += `<circle cx="${cx + dx * w * 0.5}" cy="${cy + dy * h * 0.6}" r="${r * Math.min(w, h) * 0.5}" fill="${f}" stroke="#000" stroke-width="1.2"/><circle cx="${cx + dx * w * 0.5}" cy="${cy + dy * h * 0.6}" r="2.5" fill="none" stroke="#000"/>`;
       o += `<rect x="${cx - w * 0.22}" y="${cy + h * 0.38}" width="${w * 0.44}" height="8" fill="#fff" stroke="#000"/>`;
-      continue;
+      break;
     }
     if (it.kind === 'monitor') {
       const w = 0.85 * sx;
       const h = 0.45 * sy;
       o += `<path d="M${cx - w / 2} ${cy - h / 2} L${cx + w / 2} ${cy - h / 2} L${cx + w * 0.42} ${cy + h / 2} L${cx - w * 0.42} ${cy + h / 2} Z" fill="#bbb" stroke="#000" stroke-width="1.4"/><text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="14">${esc(it.name || 'Monitor')}</text>`;
-      continue;
+      break;
     }
     if (it.kind === 'mic' || it.kind === 'vocals') {
       o += `<circle cx="${cx}" cy="${cy}" r="22" fill="#fff" stroke="#000" stroke-width="1.4"/><rect x="${cx - 4}" y="${cy - 14}" width="8" height="22" rx="4" fill="#000"/><text x="${cx}" y="${cy - 30}" text-anchor="middle" font-size="12">${esc(it.name || kindName(it.kind))}</text>`;
-      continue;
+      break;
     }
     if (it.kind === 'power') {
       o += socket(cx, cy);
-      continue;
+      break;
     }
     const w = Math.max(1.3, (KIND_W[it.kind] ?? 0.9)) * sx;
     const h = 0.5 * sy;
@@ -353,6 +360,8 @@ export function plotSvg(b: Band, g: Gig | null, lg: Lang = lang(b.rider)): strin
     o += `<text x="${cx}" y="${cy - 3}" text-anchor="middle" font-size="13">${esc(cap)}</text><text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="13" font-weight="bold">${esc(it.name || gearLabel(it))}</text>`;
     if (it.note) o += `<text x="${cx}" y="${cy + h / 2 + 12}" text-anchor="middle" font-size="9">${esc(it.note)}</text>`;
     if (POWERED.includes(it.kind)) o += socket(cx - w / 2 + 14, cy - h / 2 - 16);
+      } while (false);
+    o = prev + (it.rot ? `<g transform="rotate(${it.rot} ${cx} ${cy})">${o}</g>` : o);
   }
   // people (a drummer sits on top of the kit)
   for (const m of ms) {
@@ -378,7 +387,7 @@ const PRINT_CSS = `<style>
 .rider h1{font-size:26px;margin:0}.rider .sub{color:#555;margin-top:2px}
 .rider h2{font-size:16px;margin:22px 0 8px;padding-bottom:3px;border-bottom:1px solid #999;break-after:avoid}
 .rider h2.big{font-size:18px}.rider h3{font-size:14px;margin:14px 0 4px;break-after:avoid}
-.rider p{margin:0 0 6px}.rider .note{font-style:italic;color:#333}.rider ul{margin:2px 0 8px;padding-left:20px}
+.rider p{margin:0 0 6px}.rider h4{font-size:13px;margin:10px 0 4px}.rider h5{font-size:12.5px;margin:8px 0 3px}.rider blockquote{margin:4px 0 8px;padding-left:10px;border-left:3px solid #bbb;color:#444}.rider code{font-family:Menlo,monospace;font-size:11.5px;background:#f2f2f2;padding:0 3px;border-radius:3px}.rider a{color:#0645ad}.rider ol{margin:2px 0 8px;padding-left:22px}.rider .note{font-style:italic;color:#333}.rider ul{margin:2px 0 8px;padding-left:20px}
 .rider table{border-collapse:collapse;width:100%;margin:4px 0 8px}.rider td,.rider th{padding:4px 7px;text-align:left;vertical-align:top}
 .rider table.grid td,.rider table.grid th{border:0.5px solid #999}.rider th{background:#eee;font-weight:600}
 .rider table.event td:first-child{width:220px;font-weight:600}.rider table.event td:last-child{width:70%}.rider td.sig{border-bottom:1px solid #000;height:26px}
@@ -508,10 +517,37 @@ export function renderRiderSettings(main: HTMLElement, b: Band, rerender: () => 
         rerender();
       };
       const box = el('div', 'secText');
-      box.append(ta, el('div', 'hint', esc(t('{b} = Bandname, {n} = Personen, {v} = Fahrzeuge'))), reset);
+      box.append(ta, el('div', 'hint', esc(t('Markdown: **fett**, *kursiv*, - Liste, ## Überschrift, [Link](https://…) · {b} = Bandname, {n} = Personen, {v} = Fahrzeuge'))), reset);
       c3.appendChild(box);
     }
   }
+  for (const cs of r.custom ?? []) {
+    const on = !r.off.includes(cs.id);
+    const rw = el('div', 'secRow custom' + (on ? '' : ' off'));
+    rw.appendChild(toggle(on, (v) => { r.off = v ? r.off.filter((x) => x !== cs.id) : [...r.off, cs.id]; save(); rerender(); }));
+    rw.appendChild(input(cs, 'title', t('Überschrift'), undefined, 'pInput nm'));
+    rw.appendChild(iconBtn('xmark', t('Abschnitt entfernen'), () => { r.custom = (r.custom ?? []).filter((x) => x !== cs); save(); rerender(); }, 'tb'));
+    c3.appendChild(rw);
+    const box = el('div', 'secText');
+    const ta = el('textarea', 'pInput notes');
+    ta.placeholder = t('Text in Markdown, z.B.\n- Bühne mindestens 6 × 4 m\n- **Strom** auf beiden Seiten');
+    ta.value = cs.text;
+    ta.oninput = () => {
+      cs.text = ta.value;
+      save();
+    };
+    box.append(ta, el('div', 'hint', esc(t('Markdown: **fett**, *kursiv*, - Liste, ## Überschrift, [Link](https://…)'))));
+    c3.appendChild(box);
+  }
+  const addSec = el('button', 'btn plain', `${icon('plus', 12)}<span>${esc(t('Eigener Abschnitt'))}</span>`);
+  addSec.onclick = () => {
+    r.custom = [...(r.custom ?? []), { id: uid('s'), title: '', text: '' }];
+    save();
+    rerender();
+    const all = document.querySelectorAll<HTMLInputElement>('#band .secRow.custom .pInput.nm');
+    all[all.length - 1]?.focus();
+  };
+  c3.appendChild(addSec);
 
   // options
   const o1 = card(right, t('Technik'));

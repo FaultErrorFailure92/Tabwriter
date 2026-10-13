@@ -301,7 +301,7 @@ await test('Songs: to-do board moves cards between columns', async () => {
   eq(r, [0, 1, 0], 'card in "In Arbeit"');
 });
 
-await test('Setlist: drag songs in, reorder, print', async () => {
+await test('Setlist: drag & drop, print, from template; feedback link', async () => {
   await bandWizard('Testband', [['A', 'b4']]);
   await page.keyboard.press('Meta+2');
   for (const name of ['Eins', 'Zwei']) {
@@ -336,6 +336,22 @@ await test('Setlist: drag songs in, reorder, print', async () => {
   await page.waitForTimeout(300);
   const printed = await page.evaluate(() => [window.__printed || 0, !!document.querySelector('#printArea.setPrint')]);
   eq([order1, order2, printed[1]], [['Zwei', 'Eins'], ['Eins', 'Zwei'], true], 'drop, reorder, print');
+  // new setlist from a template
+  await page.keyboard.press('Meta+4');
+  await page.click('.pageHead .btn.primary');
+  await page.selectOption('.wizBody select', { index: 1 });
+  const label = await page.textContent('.wizFoot .btn.primary');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForTimeout(200);
+  const r = await page.evaluate(() => [...document.querySelectorAll('.setRow')].map((x) => x.textContent.includes('Zwei') ? 'Zwei' : x.textContent.includes('Eins') ? 'Eins' : '?'));
+  eq([label.trim(), r], ['Anlegen', ['Eins', 'Zwei']], 'one step, same order');
+  await page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
+  await page.click('.feedbackBtn');
+  await page.fill('.wizBody input', 'Testtitel');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForTimeout(200);
+  const u = await page.evaluate(() => window.__opened[0] || '');
+  eq([u.startsWith('https://github.com/FaultErrorFailure92/Tabwriter/issues/new?'), u.includes('Testtitel')], [true, true], 'issue url');
 });
 
 await test('Rider, stage plot and calendar export from band data', async () => {
@@ -361,6 +377,27 @@ await test('Rider, stage plot and calendar export from band data', async () => {
     return [h.includes('Kemper'), h.includes('<svg class="plot"'), h.includes('Fotomensch'), /DTSTART:20300501T200000/.test(ics), G.awayOn(b, '2030-05-02')];
   });
   eq(r, [true, true, true, true, [r[4][0]]], 'rider, plot, crew, ics, away');
+});
+
+await test('Markdown, 45° rotation, social links, feedback', async () => {
+  const r = await page.evaluate(async () => {
+    const { md } = await import('/src/band/md.ts');
+    const M = await import('/src/band/model.ts');
+    const R = await import('/src/band/rider.ts');
+    const h = md('## Titel\n- **fett** und *kursiv*\n[x](javascript:alert(1)) <b>roh</b>');
+    const b = M.newBand('Testband');
+    const m = M.newMember();
+    b.members.push(m);
+    b.gear.items.push({ ...M.newGearItem('amp', m.id), name: 'Amp', onStage: true, x: 2, y: 3, rot: 45 });
+    b.links = [{ id: 'l', kind: 'instagram', url: 'https://instagram.com/testband', label: '' }];
+    b.rider.custom = [{ id: 'c', title: 'Bühne', text: '- mind. **6 m**' }];
+    const g = M.newGig('2030-05-01');
+    g.lineup = [m.id];
+    const rh = R.riderHtml(b, g);
+    return [h.includes('<h4>Titel</h4>') || h.includes('<h3>Titel</h3>'), h.includes('<b>fett</b>'), h.includes('<i>kursiv</i>'), !h.includes('href="javascript'), h.includes('&lt;b&gt;roh'),
+      /rotate\(45 /.test(rh), rh.includes('instagram.com/testband'), rh.includes('<b>6 m</b>')];
+  });
+  eq(r, [true, true, true, true, true, true, true, true], 'md, rotate, links, custom');
 });
 
 await test('No uncaught errors', async () => {

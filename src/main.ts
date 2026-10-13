@@ -7,6 +7,7 @@ import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore, rebuild } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
+import { openFeedback, routeExternalLinks } from './feedback';
 import { initBand, openBand, closeBand, bandOpen, STEPS, bandReady as hasBand, bandWizard, songSaved, bandPeople, type BandTab, type ScoreInfo } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
@@ -998,6 +999,7 @@ const bandReady = initBand({
     box.appendChild($('libRecover'));
   },
   openDialog: () => void openSong(),
+  feedback: (area) => void openFeedback(area, flash),
   importScores,
   snippet: () => editor.snippet(),
   useClip: (c) => {
@@ -2392,6 +2394,8 @@ async function openRecent(it: RecentEntry) {
 $('libNew').onclick = () => newSong();
 $('libOpen').onclick = () => openSong();
 $('libClose').onclick = () => closeLibrary();
+$('libFeedback').onclick = () => run('feedback');
+routeExternalLinks();
 $('homeBtn').onclick = () => { $('homeBtn').blur(); openLibrary(); };
 
 /** start screen without a band: one entry to set up Stagecraft; Tabwriter works without it */
@@ -2935,6 +2939,7 @@ function run(a: Action) {
   switch (a) {
     case 'about': openAbout(); break;
     case 'prefs': openPrefs(); break;
+    case 'feedback': void openFeedback(bandOpen() ? t('Band') : libraryOpen() ? t('Start') : t('Editor'), flash); break;
     case 'updates': void runUpdateCheck(true); break;
     case 'quit': void closeWindow(); break;
     case 'new': void newSong(); break;

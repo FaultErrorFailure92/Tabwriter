@@ -192,6 +192,8 @@ export interface WizardStep<S> {
   /** false = "Weiter" disabled */
   ok?: (s: S) => boolean;
   optional?: boolean;
+  /** step is left out when true */
+  skip?: (s: S) => boolean;
 }
 
 /** modal step-by-step dialog; resolves with the state on finish, null on cancel */
@@ -210,8 +212,10 @@ export function wizard<S>(o: { title: string; state: S; steps: WizardStep<S>[]; 
     const next = () => {
       const st = o.steps[i];
       if (st.ok && !st.ok(o.state)) return;
-      if (i < o.steps.length - 1) {
-        i++;
+      let n = i + 1;
+      while (n < o.steps.length && o.steps[n].skip?.(o.state)) n++;
+      if (n < o.steps.length) {
+        i = n;
         draw();
       } else close(o.state);
     };
@@ -243,9 +247,11 @@ export function wizard<S>(o: { title: string; state: S; steps: WizardStep<S>[]; 
       const body = el('div', 'wizBody');
       box.appendChild(body);
       const foot = el('div', 'row wizFoot');
-      const okBtn = el('button', 'btn primary', esc(i === o.steps.length - 1 ? o.finish ?? t('Fertig') : st.optional ? t('Weiter') : t('Weiter')));
+      const last = o.steps.slice(i + 1).every((x) => x.skip?.(o.state));
+      const okBtn = el('button', 'btn primary', esc(last ? o.finish ?? t('Fertig') : t('Weiter')));
       const redraw = () => {
         okBtn.disabled = !!st.ok && !st.ok(o.state);
+        okBtn.textContent = o.steps.slice(i + 1).every((x) => x.skip?.(o.state)) ? o.finish ?? t('Fertig') : t('Weiter');
       };
       st.body(body, o.state, redraw);
       if (i === 0) o.extra?.(foot, () => close(null));
@@ -255,6 +261,7 @@ export function wizard<S>(o: { title: string; state: S; steps: WizardStep<S>[]; 
         if (i === 0) close(null);
         else {
           i--;
+          while (i > 0 && o.steps[i].skip?.(o.state)) i--;
           draw();
         }
       };

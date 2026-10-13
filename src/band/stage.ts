@@ -212,11 +212,12 @@ export function stageSvg(b: Band, sel = '', print = false): string {
     const cy = Y(g.y);
     const label = g.name || kindLabel(g.kind);
     const on = sel === g.id ? ' sel' : '';
+    const tr = g.rot ? ` transform="rotate(${g.rot} ${cx} ${cy})"` : '';
     if (g.kind === 'monitor') {
-      svg += `<g class="it gear k-${g.kind}${on}" data-id="${g.id}"><path d="M${cx - w / 2} ${cy + h / 2} L${cx + w / 2} ${cy + h / 2} L${cx + w * 0.35} ${cy - h / 2} L${cx - w * 0.35} ${cy - h / 2} Z"/><text x="${cx}" y="${cy + 4}" text-anchor="middle">${esc(label)}</text></g>`;
+      svg += `<g class="it gear k-${g.kind}${on}" data-id="${g.id}"${tr}><path d="M${cx - w / 2} ${cy + h / 2} L${cx + w / 2} ${cy + h / 2} L${cx + w * 0.35} ${cy - h / 2} L${cx - w * 0.35} ${cy - h / 2} Z"/><text x="${cx}" y="${cy + 4}" text-anchor="middle">${esc(label)}</text></g>`;
     } else {
       const ty = g.kind === 'drums' ? cy - h / 2 + 16 : w < label.length * 6.2 + 8 ? cy + h / 2 + 12 : cy + 4; // label below small boxes, drums at the top
-      svg += `<g class="it gear k-${g.kind}${on}" data-id="${g.id}"><rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" rx="${g.kind === 'drums' ? w / 2 : 4}"/><text x="${cx}" y="${ty}" text-anchor="middle">${esc(label)}</text></g>`;
+      svg += `<g class="it gear k-${g.kind}${on}" data-id="${g.id}"${tr}><rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" rx="${g.kind === 'drums' ? w / 2 : 4}"/><text x="${cx}" y="${ty}" text-anchor="middle">${esc(label)}</text></g>`;
     }
   }
   // members on top
@@ -254,7 +255,8 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
   const g = isMember ? null : b.gear.items.find((x) => x.id === selected && x.onStage);
   const pos = isMember ? memberPos(b, selected.slice(2)) : g;
   if (pos) {
-    const rm = g ? [iconBtn('xmark', t('Vom Plan nehmen'), () => { g.onStage = false; selected = ''; save(); rerender(); }, 'tb')] : [];
+    const rot = (d: number) => () => { if (!g) return; g.rot = (((g.rot ?? 0) + d) % 360 + 360) % 360; save(); rerender(); };
+    const rm = g ? [iconBtn('restore', t('45° nach links drehen'), rot(-45), 'tb'), iconBtn('loop', t('45° nach rechts drehen (R)'), rot(45), 'tb'), iconBtn('xmark', t('Vom Plan nehmen'), () => { g.onStage = false; selected = ''; save(); rerender(); }, 'tb')] : [];
     const sec = card(side, isMember ? memberName(b, selected.slice(2)) : g!.name || kindLabel(g!.kind), { extra: rm });
     const xy = el('div', 'xyRow');
     const xi = input(pos, 'x', '', undefined, 'pInput num', 'number');
@@ -268,6 +270,15 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
     };
     xy.append(el('span', '', 'X'), xi, el('span', '', 'Y'), yi, el('span', 'unit', 'm'));
     sec.appendChild(xy);
+    if (g) {
+      const rr = el('div', 'rotRow');
+      for (const deg of [0, 45, 90, 135, 180, 225, 270, 315]) {
+        const bt = el('button', 'chipBtn' + ((g.rot ?? 0) === deg ? ' on' : ''), `${deg}°`);
+        bt.onclick = () => { g.rot = deg; save(); rerender(); };
+        rr.appendChild(bt);
+      }
+      sec.appendChild(rr);
+    }
     hint(sec, t('X von links, Y von der Bühnenkante (Sicht Publikum).'));
   } else hint(card(side, t('Auswahl')), t('Element anklicken oder ziehen. Position auch exakt in Metern eingeben.'));
   // add
@@ -293,8 +304,20 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
   wrap.appendChild(side);
   main.appendChild(wrap);
 
+  // R / ⇧R: rotate the selected item in 45° steps
+  document.onkeydown = (e) => {
+    if (sub !== 'plan' || !document.querySelector('#band:not(.hidden) .planCanvas')) return;
+    if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+    const it = b.gear.items.find((x) => x.id === selected && x.onStage);
+    if (!it || e.key.toLowerCase() !== 'r' || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    it.rot = (((it.rot ?? 0) + (e.shiftKey ? -45 : 45)) % 360 + 360) % 360;
+    save();
+    rerender();
+  };
+
   // drag & drop (positions in m, 0.1 m steps)
-  canvas.addEventListener('mousedown', (e) => {
+  canvas.addEventListener('pointerdown', (e) => {
     const svg = canvas.querySelector('svg') as SVGSVGElement;
     const it = (e.target as Element).closest('.it') as SVGGElement | null;
     if (!it) {
@@ -314,7 +337,7 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
     const x0 = p.x;
     const y0 = p.y;
     let moved = false;
-    const mv = (m: MouseEvent) => {
+    const mv = (m: PointerEvent) => {
       if (!moved && Math.abs(m.clientX - sx) + Math.abs(m.clientY - sy) < 3) return;
       moved = true;
       p.x = r1(clamp(x0 + (m.clientX - sx) / scale / PLAN_PX, 0, s.width));
@@ -322,14 +345,14 @@ function renderPlan(main: HTMLElement, b: Band, rerender: () => void) {
       canvas.innerHTML = stageSvg(b, id);
     };
     const up = () => {
-      window.removeEventListener('mousemove', mv);
-      window.removeEventListener('mouseup', up);
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
       selected = id;
       if (moved) save();
       rerender();
     };
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
   });
 }
 

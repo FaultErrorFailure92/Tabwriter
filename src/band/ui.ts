@@ -20,7 +20,7 @@ import {
 } from './kit';
 import {
   type Band, type Gig, type Setlist, type SetItem, type Member, type GearItem, type Todo, type TodoStatus,
-  type Song, type SetCol, SET_COLS, TUNINGS, newTodo, newSound, todoStatus,
+  type Song, type SetCol, SET_COLS, TUNINGS, LINK_KINDS, newTodo, newSound, todoStatus,
   newBand, normalize, newMember, newSong, newSetlist, newGig, newContact, newCost, uid, settle, fmtMoney,
   setlistDuration, fmtDur, ticketTotals,
 } from './model';
@@ -61,6 +61,8 @@ export interface BandHost {
   mountRecovery(box: HTMLElement): void;
   /** the normal "open file" dialog of the editor */
   openDialog(): void;
+  /** feedback dialog (GitHub issue) */
+  feedback(area: string): void;
   /** read score files (picker when files = null), keep them in the library; title, tempo and length */
   importScores(files: File[] | null, multiple: boolean): Promise<ScoreInfo[]>;
 }
@@ -134,6 +136,7 @@ export function openBand(to?: Tab) {
     void bandWizard();
     return;
   }
+  if (to && to !== tab) mDetail = false;
   if (to) tab = to;
   render();
   root.classList.remove('hidden');
@@ -169,6 +172,7 @@ async function openSongFile(file: string) {
 
 function go(to: Tab) {
   tab = to;
+  mDetail = false;
   render();
 }
 
@@ -183,6 +187,7 @@ function render() {
   root.appendChild(sidebar());
   const main = el('main', 'bandMain');
   root.appendChild(main);
+  main.appendChild(mobileHead());
   if (tab === 'home') renderHome(main);
   else if (tab === 'gigs') renderGigs(main);
   else if (tab === 'setlists') renderSetlists(main);
@@ -196,17 +201,40 @@ function initials(name: string) {
   return ((w[0]?.[0] ?? '') + (w[1]?.[0] ?? w[0]?.[1] ?? '')).toUpperCase() || '♪';
 }
 
-function sidebar(): HTMLElement {
-  const side = el('aside', 'bandSide');
-  // band switcher: file actions now, several bands once there are accounts
-  const sw = el('button', 'bandSw', `<span class="bandLogo">${band.logo ? `<img src="${band.logo}" alt="">` : esc(initials(band.name))}</span><b>${esc(band.name || t('Band'))}</b>${icon('chevronDown', 12)}`);
-  sw.dataset.tip = t('Band-Datei, neue Band');
-  sw.onclick = () => popMenu(sw, [
+function bandMenu(anchor: HTMLElement) {
+  popMenu(anchor, [
     { icon: 'folder', label: t('Band-Datei öffnen …'), fn: () => void importBand() },
     { icon: 'save', label: t('Band-Datei speichern …'), fn: () => void exportBand() },
     'sep',
     { icon: 'plus', label: t('Neue Band einrichten …'), fn: () => void bandWizard(true) },
   ]);
+}
+
+/** phone layout: small header (band + Tabwriter); the sidebar becomes a tab bar via CSS */
+function mobileHead(): HTMLElement {
+  const h = el('div', 'mTop');
+  const sw = el('button', 'mBand', `<span class="bandLogo">${band.logo ? `<img src="${band.logo}" alt="">` : esc(initials(band.name))}</span><b>${esc(band.name || t('Band'))}</b>${icon('chevronDown', 12)}`);
+  sw.onclick = () => bandMenu(sw);
+  h.appendChild(sw);
+  h.appendChild(el('span', 'spacer'));
+  h.appendChild(iconBtn('comment', t('Feedback geben'), () => host.feedback(areaName()), 'tbtn'));
+  if (host.hasSong()) {
+    const ed = iconBtn('pencil', t('Zurück in den Editor (Esc)'), () => host.editor(), 'tbtn');
+    h.appendChild(ed);
+  }
+  return h;
+}
+
+let mDetail = false; // phone: detail instead of list
+
+const areaName = () => (tab === 'home' ? t('Übersicht') : t(STEPS.find((x) => x.tab === tab)?.label ?? tab));
+
+function sidebar(): HTMLElement {
+  const side = el('aside', 'bandSide');
+  // band switcher: file actions now, several bands once there are accounts
+  const sw = el('button', 'bandSw', `<span class="bandLogo">${band.logo ? `<img src="${band.logo}" alt="">` : esc(initials(band.name))}</span><b>${esc(band.name || t('Band'))}</b>${icon('chevronDown', 12)}`);
+  sw.dataset.tip = t('Band-Datei, neue Band');
+  sw.onclick = () => bandMenu(sw);
   side.appendChild(sw);
 
   const nav = (cls: string, html: string, fn: () => void, tip = '') => {
@@ -216,11 +244,11 @@ function sidebar(): HTMLElement {
     side.appendChild(b);
     return b;
   };
-  nav('home' + (tab === 'home' ? ' on' : ''), `${icon('house', 16)}<span>${esc(t('Übersicht'))}</span><kbd>⇧⌘L</kbd>`, () => go('home'));
+  nav('home' + (tab === 'home' ? ' on' : ''), `${icon('house', 16)}<span class="lbl">${esc(t('Übersicht'))}</span><kbd>⇧⌘L</kbd>`, () => go('home'));
   side.appendChild(el('div', 'bandNavSep'));
   const counts: Record<string, number> = { members: band.members.length, songs: band.songs.length, stage: band.gear.items.length, setlists: band.setlists.length, gigs: band.gigs.length };
   STEPS.forEach((st, i) => {
-    nav(tab === st.tab ? 'on' : '', `<span class="step">${i + 1}</span>${icon(st.icon, 16)}<span>${esc(t(st.label))}</span><span class="cnt">${counts[st.tab] || ''}</span>`, () => go(st.tab), `⌘${i + 1}`);
+    nav(tab === st.tab ? 'on' : '', `<span class="step">${i + 1}</span>${icon(st.icon, 16)}<span class="lbl">${esc(t(st.label))}</span><span class="cnt">${counts[st.tab] || ''}</span>`, () => go(st.tab), `⌘${i + 1}`);
     if (st.tab === 'songs' && host.hasSong()) {
       nav('sub', `${icon('pencil', 14)}<span>${esc(host.songTitle() || t('Editor'))}</span>`, () => host.editor(), t('Zurück in den Editor (Esc)'));
     }
@@ -229,13 +257,16 @@ function sidebar(): HTMLElement {
   // account: reserved for the coming account system
   const acct = el('button', 'acct', `<span class="av">${icon('people', 14)}</span><span><b>${esc(t('Lokal'))}</b><small>${esc(t('Anmelden – bald verfügbar'))}</small></span>`);
   acct.onclick = () => host.flash(t('Accounts kommen bald. Bis dahin bleiben alle Daten auf diesem Gerät.'));
-  side.appendChild(acct);
+  const foot = el('div', 'sideFoot');
+  foot.appendChild(acct);
+  foot.appendChild(iconBtn('comment', t('Feedback geben'), () => host.feedback(areaName()), 'tbtn feedbackBtn'));
+  side.appendChild(foot);
   return side;
 }
 
 /** list | detail */
 function split(main: HTMLElement): [HTMLElement, HTMLElement] {
-  const s = el('div', 'bandSplit');
+  const s = el('div', 'bandSplit' + (mDetail ? ' showDetail' : ''));
   const l = el('div', 'bandList');
   s.appendChild(l);
   main.appendChild(s);
@@ -244,13 +275,23 @@ function split(main: HTMLElement): [HTMLElement, HTMLElement] {
 
 function listItem(list: HTMLElement, on: boolean, title: string, sub: string, fn: () => void, cls = '') {
   const r = el('div', 'bandItem' + (on ? ' on' : '') + (cls ? ' ' + cls : ''), `<span class="t">${title}</span><span class="s">${sub}</span>`);
-  r.onclick = fn;
+  r.onclick = () => {
+    mDetail = true;
+    fn();
+  };
   list.appendChild(r);
   return r;
 }
 
 function detail(): HTMLElement {
-  return el('div', 'bandDetail');
+  const d = el('div', 'bandDetail');
+  const back = el('button', 'mBack', `${icon('chevronLeft', 14)}<span>${esc(t('Zurück'))}</span>`);
+  back.onclick = () => {
+    mDetail = false;
+    render();
+  };
+  d.appendChild(back);
+  return d;
 }
 
 function titleInput<T extends object>(obj: T, key: keyof T, ph: string, onChange?: () => void) {
@@ -382,6 +423,7 @@ function renderMembers(main: HTMLElement) {
   row(k, t('Telefon'), input(band.contact, 'phone', '+43 …'));
   row(k, t('Web'), input(band.contact, 'web', 'https://…'));
   row(k, t('Booking'), input(band.contact, 'booking', t('Name, E-Mail')));
+  socialCard(left);
 
   // members
   const mc = card(right, t('Mitglieder'));
@@ -391,6 +433,45 @@ function renderMembers(main: HTMLElement) {
 }
 
 const ctx = () => ({ b: band, rerender: render, confirm: (m: string) => host.confirm(m), flash: (m: string) => host.flash(m) });
+
+const LINK_ICON: Record<string, IconName> = { instagram: 'image', facebook: 'people', tiktok: 'play', youtube: 'play', spotify: 'music', apple: 'music', bandcamp: 'album', soundcloud: 'waveform', website: 'house', linktree: 'link', other: 'link' };
+const kindOfUrl = (u: string) => (/instagram/.test(u) ? 'instagram' : /facebook|fb\.com/.test(u) ? 'facebook' : /tiktok/.test(u) ? 'tiktok' : /youtu/.test(u) ? 'youtube' : /spotify/.test(u) ? 'spotify' : /music\.apple/.test(u) ? 'apple' : /bandcamp/.test(u) ? 'bandcamp' : /soundcloud/.test(u) ? 'soundcloud' : /linktr\.ee/.test(u) ? 'linktree' : '');
+
+function socialCard(parent: HTMLElement) {
+  const used = new Set(band.links.map((l) => l.kind));
+  const c = card(parent, t('Social Media & Streaming'), {
+    addTip: t('Profil hinzufügen'),
+    add: (a) => popMenu(a, LINK_KINDS.map(([k, label]): MenuItem => ({ icon: used.has(k) ? 'checkmark' : LINK_ICON[k], label, fn: () => {
+      band.links.push({ id: uid('k'), kind: k, url: '' });
+      save();
+      render();
+      const all = root.querySelectorAll<HTMLInputElement>('.linkRow2 input');
+      all[all.length - 1]?.focus();
+    } })), 'scroll'),
+  });
+  if (!band.links.length) hint(c, t('Instagram, Spotify, YouTube, Website … – erscheint im Rider und lässt sich überall verlinken.'));
+  for (const l of band.links) {
+    const kd = LINK_KINDS.find(([k]) => k === l.kind) ?? LINK_KINDS[LINK_KINDS.length - 1];
+    const r = el('div', 'linkRow2');
+    r.appendChild(el('span', 'lk', `${icon(LINK_ICON[l.kind] ?? 'link', 14)}<span>${esc(kd[1])}</span>`));
+    const u = input(l, 'url', kd[2], () => {
+      const k = kindOfUrl(l.url);
+      if (k && l.kind === 'other') l.kind = k;
+    });
+    u.onchange = () => render();
+    r.appendChild(u);
+    if (l.url) {
+      const a = el('a', 'tb', icon('external', 13));
+      a.href = /^https?:/.test(l.url) ? l.url : `https://${l.url}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.dataset.tip = t('Öffnen');
+      r.appendChild(a);
+    } else r.appendChild(el('span'));
+    r.appendChild(iconBtn('xmark', t('Entfernen'), () => { band.links = band.links.filter((x) => x !== l); save(); render(); }, 'tb'));
+    c.appendChild(r);
+  }
+}
 
 function memberRow(m: Member): HTMLElement {
   const r = el('div', 'memberRow');
@@ -1035,16 +1116,6 @@ function setlistDetail(l: Setlist): HTMLElement {
       { icon: 'printer', label: t('Für die Bühne drucken / PDF'), hint: t('groß'), fn: () => printSetlist(l, true) },
       { icon: 'list', label: t('Mit Details drucken / PDF'), fn: () => printSetlist(l, false) },
       'sep',
-      { icon: 'duplicate', label: t('Duplizieren (z.B. kurze Variante)'), fn: () => {
-        const c: Setlist = JSON.parse(JSON.stringify(l));
-        c.id = uid('l');
-        c.name = `${l.name} (${t('Kopie')})`;
-        c.items.forEach((it) => (it.id = uid('i')));
-        band.setlists.push(c);
-        selList = c.id;
-        save();
-        render();
-      } },
       'sep',
       { icon: 'trash', label: t('Setlist löschen'), danger: true, fn: async () => {
         if (!(await host.confirm(t('{x} löschen?', { x: l.name || t('Setlist') })))) return;
@@ -1156,6 +1227,7 @@ function setlistDetail(l: Setlist): HTMLElement {
   for (const s of band.songs.filter((x) => (!shelfAlbum || (shelfAlbum === '\u0000' ? !x.album : x.album === shelfAlbum)) && (!ql || x.title.toLowerCase().includes(ql)))) {
     const r = el('div', 'shelfRow' + (used.has(s.id) ? ' used' : ''), `<span class="grip">${icon('grip', 13)}</span><span class="t">${esc(s.title || t('Ohne Titel'))}</span><span class="d">${s.duration ? fmtDur(s.duration) : ''}</span>${used.has(s.id) ? `<span class="ok">${icon('checkmark', 12)}</span>` : ''}`);
     r.dataset.song = s.id;
+    r.onclick = (ev) => { if ((ev as PointerEvent).pointerType === 'touch' || matchMedia('(pointer: coarse)').matches) insert(l.items.length, { id: uid('i'), type: 'song', song: s.id, note: '' } as SetItem); };
     r.dataset.tip = used.has(s.id) ? t('Schon in der Setlist – nochmal hinzufügen?') : t('Ziehen oder klicken zum Hinzufügen');
     shelfList.appendChild(r);
   }
@@ -1184,7 +1256,7 @@ let shelfQuery = '';
  * Click on a shelf song (no movement) appends it.
  */
 function setlistDrag(box: HTMLElement, shelf: HTMLElement, move: (from: number, gap: number) => void, add: (song: string, gap?: number) => void) {
-  const start = (e: MouseEvent, label: string, done: (gap: number | null) => void, click?: () => void) => {
+  const start = (e: PointerEvent, label: string, done: (gap: number | null) => void, click?: () => void) => {
     e.preventDefault();
     const x0 = e.clientX;
     const y0 = e.clientY;
@@ -1195,7 +1267,7 @@ function setlistDrag(box: HTMLElement, shelf: HTMLElement, move: (from: number, 
       rows().forEach((r) => r.classList.remove('dropT', 'dropB'));
       box.classList.remove('dropIn');
     };
-    const mv = (m: MouseEvent) => {
+    const mv = (m: PointerEvent) => {
       if (!ghost) {
         if (Math.abs(m.clientX - x0) + Math.abs(m.clientY - y0) < 4) return;
         ghost = el('div', 'dragGhost', esc(label));
@@ -1218,34 +1290,36 @@ function setlistDrag(box: HTMLElement, shelf: HTMLElement, move: (from: number, 
       else rs[rs.length - 1].classList.add('dropB');
     };
     const up = () => {
-      window.removeEventListener('mousemove', mv);
-      window.removeEventListener('mouseup', up);
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
       document.body.classList.remove('arDragging');
       clear();
       if (!ghost) return click?.();
       ghost.remove();
       done(gap);
     };
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
   };
-  box.addEventListener('mousedown', (e) => {
+  box.addEventListener('pointerdown', (e) => {
     const t0 = e.target as HTMLElement;
     if (t0.closest('input, button, select, textarea, .link')) return;
     const r = t0.closest('.setRow') as HTMLElement | null;
     if (!r) return;
+    if (e.pointerType === 'touch' && !t0.closest('.grip')) return; // touch: drag only by the handle, the rest scrolls
     const from = Number(r.dataset.i);
     r.classList.add('dragging');
     start(e, r.querySelector('.name')?.textContent || (r.querySelector('input') as HTMLInputElement | null)?.value || '', (gap) => {
       r.classList.remove('dragging');
       if (gap !== null && gap !== from && gap !== from + 1) move(from, gap);
     });
-    window.addEventListener('mouseup', () => r.classList.remove('dragging'), { once: true });
+    window.addEventListener('pointerup', () => r.classList.remove('dragging'), { once: true });
   });
-  shelf.addEventListener('mousedown', (e) => {
+  shelf.addEventListener('pointerdown', (e) => {
     const r = (e.target as HTMLElement).closest('.shelfRow') as HTMLElement | null;
     if (!r) return;
     const song = r.dataset.song!;
+    if (e.pointerType === 'touch' && !(e.target as HTMLElement).closest('.grip')) return; // touch: tap adds (click handler)
     start(e, r.querySelector('.t')?.textContent ?? '', (gap) => { if (gap !== null) add(song, gap); }, () => add(song));
   });
 }
@@ -1741,14 +1815,33 @@ async function songWizard() {
 }
 
 async function setlistWizard() {
-  const r = await wizard<{ name: string; songs: string[] }>({
+  const r = await wizard<{ name: string; songs: string[]; base: string }>({
     title: t('Setlist'),
-    state: { name: '', songs: [] },
+    state: { name: '', songs: [], base: '' },
     finish: t('Anlegen'),
     steps: [
-      { title: t('Wie heißt die Setlist?'), ok: (s) => !!s.name.trim(), body: (box, s, redraw) => wizField(box, t('Name'), wizInput(s.name, t('z.B. Clubshow 45 min'), (v) => { s.name = v; redraw(); })) },
+      {
+        title: t('Wie heißt die Setlist?'),
+        ok: (s) => !!s.name.trim(),
+        body: (box, s, redraw) => {
+          const nm = wizInput(s.name, t('z.B. Clubshow 45 min'), (v) => { s.name = v; redraw(); });
+          wizField(box, t('Name'), nm);
+          if (!band.setlists.length) return;
+          wizField(box, t('Vorlage'), select([['', t('Leer – Songs auswählen')], ...band.setlists.map((x) => [x.id, t('Auf Basis von „{x}“', { x: x.name || t('Ohne Namen') })] as [string, string])], s.base, (v) => {
+            s.base = v;
+            const bl = band.setlists.find((x) => x.id === v);
+            if (bl && !s.name.trim()) {
+              s.name = `${bl.name} (${t('Variante')})`;
+              nm.value = s.name;
+            }
+            redraw();
+          }));
+          box.appendChild(el('p', 'wizText', esc(t('Mit Vorlage wird der ganze Ablauf übernommen – inkl. Pausen, Trennlinien, Notizen und Spalten. Danach kannst du ihn anpassen.'))));
+        },
+      },
       {
         title: t('Welche Songs?'),
+        skip: (s) => !!s.base,
         text: band.songs.length ? t('In der Reihenfolge anklicken. Reihenfolge und Pausen änderst du später.') : t('Noch keine Songs in der Band – du kannst sie später hinzufügen.'),
         optional: true,
         body: (box, s) => {
@@ -1775,7 +1868,11 @@ async function setlistWizard() {
   });
   if (!r) return;
   const l = newSetlist(r.name.trim());
-  l.items = r.songs.map((id) => ({ id: uid('i'), type: 'song', song: id, note: '' } as SetItem));
+  const base = band.setlists.find((x) => x.id === r.base);
+  if (base) {
+    l.items = JSON.parse(JSON.stringify(base.items)).map((it: SetItem) => ({ ...it, id: uid('i') }));
+    if (base.cols) l.cols = [...base.cols];
+  } else l.items = r.songs.map((id) => ({ id: uid('i'), type: 'song', song: id, note: '' } as SetItem));
   band.setlists.push(l);
   selList = l.id;
   save();
