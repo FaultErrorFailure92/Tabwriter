@@ -60,6 +60,10 @@ export const ICONS = {
   duplicate: '<rect x="5" y="5" width="8.4" height="8.4" rx="1.6"/><path d="M3.4 10.6h-.2c-.8 0-1.4-.6-1.4-1.4V3.2c0-.8.6-1.4 1.4-1.4h6c.8 0 1.4.6 1.4 1.4v.2"/>',
   arrowLeft: '<path d="M13 8H3.4M7.2 4.2 3.4 8l3.8 3.8"/>',
   arrowRight: '<path d="M3 8h9.6M8.8 4.2 12.6 8l-3.8 3.8"/>',
+  chevronUp: '<path d="M4.6 9.6 8 6.2l3.4 3.4"/>',
+  calendar: '<rect x="2" y="3.2" width="12" height="10.6" rx="1.8"/><path d="M2 6.6h12M5.2 1.8v2.6M10.8 1.8v2.6"/>',
+  list: '<path d="M6 4.2h8M6 8h8M6 11.8h8"/><circle cx="2.8" cy="4.2" r=".8" fill="currentColor" stroke="none"/><circle cx="2.8" cy="8" r=".8" fill="currentColor" stroke="none"/><circle cx="2.8" cy="11.8" r=".8" fill="currentColor" stroke="none"/>',
+  people: '<circle cx="6" cy="5.4" r="2.3"/><path d="M1.8 13.4c.3-2.4 2-3.8 4.2-3.8s3.9 1.4 4.2 3.8"/><circle cx="11.3" cy="5.9" r="1.8"/><path d="M11 9.6c1.9 0 3 1.2 3.3 3.4"/>',
   metronome: '<path d="M5.4 2.4h5.2l2.4 11.2H3z"/><path d="M8 11 11.6 4.2M5.6 11h4.8"/>',
 };
 

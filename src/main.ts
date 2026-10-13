@@ -7,6 +7,8 @@ import { Editor } from './editor';
 import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, restore } from './model';
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW } from './io';
 import * as A from './arrangement';
+import { initBand, openBand, closeBand, bandOpen } from './band/ui';
+import { barTicks } from './model';
 type Arrangement = A.Arrangement;
 import { listRecent, addRecent, removeRecent, cachedBytes, relTime, dbGet, dbPut, dbDelete, type RecentEntry } from './library';
 import { exportMidi } from './midi';
@@ -512,6 +514,30 @@ $('overview').addEventListener('mousedown', (e) => {
     updateCursor(true);
   }
 });
+
+// ---------------- band (Stagecraft) ----------------
+/** song length in seconds (repeats ignored), tempo of bar 1 */
+function songDuration(): number {
+  const bpm = getTempo(editor.score) || 120;
+  const ticks = editor.score.masterBars.reduce((a, mb) => a + barTicks(mb), 0);
+  // repeated sections count once more per extra play
+  let rep = 0;
+  let start = 0;
+  editor.score.masterBars.forEach((mb, i) => {
+    if (mb.isRepeatStart) start = i;
+    if (mb.repeatCount > 1) for (let k = start; k <= i; k++) rep += barTicks(editor.score.masterBars[k]) * (mb.repeatCount - 1);
+  });
+  return Math.round(((ticks + rep) / 960) * (60 / bpm));
+}
+void initBand({
+  currentSong: () => (hasSong ? { title: editor.score.title || fileName, bpm: Math.round(getTempo(editor.score)), duration: songDuration(), key: '', file: typeof saveHandle === 'string' ? saveHandle : fileName } : null),
+  flash: (m) => flash(m),
+  confirm: (m) => confirmAsk(m),
+});
+$('bandBtn').onclick = () => {
+  $('bandBtn').blur();
+  run('band');
+};
 
 // ---------------- arrangement ----------------
 $('arrBtn').onclick = async () => {
@@ -1675,7 +1701,7 @@ function closeLibrary() {
 }
 
 function libraryOpen() {
-  return !$('library').classList.contains('hidden');
+  return !$('library').classList.contains('hidden') || bandOpen();
 }
 
 function renderLibrary() {
@@ -2192,6 +2218,7 @@ function run(a: Action) {
     case 'help': toggleHelp(true); break;
     case 'onboarding': openOnboarding(); break;
     case 'demo': void openDemo(); break;
+    case 'band': if (bandOpen()) closeBand(); else { closePops(); openBand(); } break;
   }
 }
 
@@ -2238,6 +2265,11 @@ window.addEventListener('keydown', async (e) => {
   const k = e.key;
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(k)) return;
 
+  if (bandOpen()) {
+    if (k === 'Escape' && !inTextField()) { e.preventDefault(); closeBand(); }
+    else if (mod && k.toLowerCase() === 'g' && e.shiftKey) { e.preventDefault(); closeBand(); }
+    return;
+  }
   if (libraryOpen()) {
     const lk0 = k.toLowerCase();
     if (k === 'Escape' && hasSong) { e.preventDefault(); closeLibrary(); }
@@ -2259,7 +2291,7 @@ window.addEventListener('keydown', async (e) => {
     const lk = k.toLowerCase();
     const map: Record<string, Action> = {
       s: e.shiftKey ? 'saveas' : 'save', l: e.shiftKey ? 'library' : 'loop', k: 'metronome', t: 'transpose', o: 'open', n: 'new', e: 'multi', i: 'panel', b: 'overview',
-      p: 'print', ',': 'prefs', '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
+      p: 'print', ',': 'prefs', ...(e.shiftKey ? { g: 'band' as Action } : {}), '=': 'zoom-in', '+': 'zoom-in', '-': 'zoom-out', '0': 'zoom-reset', y: 'redo',
     };
     if (lk === 's' && e.ctrlKey && (e.metaKey || e.altKey)) { e.preventDefault(); run('sidebar'); return; }
     if (lk === 'z') { e.preventDefault(); run(e.shiftKey ? 'redo' : 'undo'); return; }

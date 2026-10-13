@@ -50,7 +50,7 @@ export function printScore(score: alphaTab.model.Score, tracks: number[], base: 
   });
 }
 
-async function openPrintDialog() {
+export async function openPrintDialog() {
   const t = (window as any).__TAURI__;
   if (t?.core?.invoke) {
     try {

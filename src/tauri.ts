@@ -11,7 +11,7 @@ export type Action =
   | 'undo' | 'redo' | 'paste-insert' | 'select-all'
   | 'multi' | 'panel' | 'sidebar' | 'overview' | 'zoom-in' | 'zoom-out' | 'zoom-reset'
   | 'play' | 'stop' | 'loop' | 'metronome' | 'transpose'
-  | 'help' | 'onboarding' | 'demo';
+  | 'help' | 'onboarding' | 'demo' | 'band';
 
 export async function setupMenu(run: (a: Action) => void) {
   const tt = T();
@@ -60,6 +60,7 @@ export async function setupMenu(run: (a: Action) => void) {
       item('new', t('Neu'), 'CmdOrCtrl+N'),
       item('open', t('Öffnen …'), 'CmdOrCtrl+O'),
       item('library', t('Bibliothek'), 'CmdOrCtrl+Shift+L'),
+      item('band', t('Band …'), 'CmdOrCtrl+Shift+G'),
       sep(),
       item('save', t('Speichern'), 'CmdOrCtrl+S'),
       item('saveas', t('Speichern unter …'), 'CmdOrCtrl+Shift+S'),

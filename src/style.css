@@ -988,3 +988,105 @@ body.arDragging, body.arDragging * { cursor: grabbing !important; }
   box-shadow: inset 0 0 0 1px var(--sep) !important;
 }
 #arrBtn.on { color: var(--accent); }
+
+/* ---------- Stagecraft band area ---------- */
+#band { position: fixed; inset: 0; z-index: 44; display: flex; background: var(--content); color: var(--label); font-size: 13px; }
+#band.hidden { display: none; }
+.bandSide {
+  width: 230px; flex: none; display: flex; flex-direction: column; gap: 2px;
+  padding: 44px 10px 12px; background: var(--chrome); border-right: 0.5px solid var(--sep);
+  -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px);
+}
+.bandHead { display: flex; align-items: center; gap: 4px; margin: 0 0 14px 2px; }
+.bandName {
+  flex: 1; min-width: 0; font: 700 17px var(--font-display); color: var(--label);
+  background: none; border: 0; outline: none; padding: 4px 6px; border-radius: 6px;
+}
+.bandName:hover { background: var(--fill); }
+.bandName:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft); }
+.bandNav {
+  display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; border-radius: 7px;
+  background: none; color: var(--label); font: 13px var(--font); text-align: left; cursor: default;
+}
+.bandNav i, .bandNav svg { color: var(--accent); }
+.bandNav:hover { background: var(--fill); }
+.bandNav.on { background: var(--accent-soft); font-weight: 500; }
+.bandNav .cnt { margin-left: auto; color: var(--label3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.bandSide .spacer { flex: 1; }
+.bandFoot { display: flex; gap: 2px; }
+.bandMain { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 26px 30px 20px; overflow: auto; }
+.bandTop { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.bandTop h2 { margin: 0; font: 700 22px var(--font-display); letter-spacing: -0.01em; }
+.bandTop .spacer { flex: 1; }
+.bandTop .btn { display: inline-flex; align-items: center; gap: 6px; }
+.bandEmpty { color: var(--label2); padding: 40px 16px; text-align: center; }
+.bandEmpty.small { padding: 18px; font-size: 12px; }
+.bandSum { color: var(--label3); font-size: 11.5px; margin: 8px 4px; }
+.bandTable { background: var(--paper); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 4px 0; }
+.bandTable .row { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr 1.3fr 26px; gap: 8px; align-items: center; padding: 5px 12px; }
+.bandTable .row.songs { grid-template-columns: 2fr 70px 64px 70px 2fr 26px; }
+.bandTable .row + .row { box-shadow: inset 0 0.5px 0 var(--sep); }
+.bandTable .row.head { color: var(--label2); font-size: 11.5px; font-weight: 500; padding-top: 6px; padding-bottom: 6px; }
+.bandTable .pInput, .contactRow .pInput, .schedRow .pInput { box-shadow: none; background: none; }
+.bandTable .pInput:hover, .contactRow .pInput:hover, .schedRow .pInput:hover { background: var(--fill); }
+.bandTable .pInput:focus, .contactRow .pInput:focus, .schedRow .pInput:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent-line); }
+.pInput.dur, .pInput.num { font-variant-numeric: tabular-nums; }
+.bandTable .row:not(:hover) .tb, .setRow:not(:hover) .tools, .schedRow:not(:hover) .tb, .contactRow:not(:hover) .tb { visibility: hidden; }
+.bandSplit { display: flex; gap: 18px; flex: 1; min-height: 0; align-items: flex-start; }
+.bandList { width: 250px; flex: none; display: flex; flex-direction: column; gap: 2px; }
+.bandGroup { font-size: 11px; font-weight: 600; color: var(--label2); margin: 8px 10px 4px; }
+.bandGroup:first-child { margin-top: 0; }
+.bandItem { display: flex; flex-direction: column; padding: 7px 10px; border-radius: 8px; cursor: default; }
+.bandItem:hover { background: var(--fill); }
+.bandItem.on { background: var(--accent); color: var(--accent-ink); }
+.bandItem .t { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bandItem .s { font-size: 11.5px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bandItem.on .s { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+.bandItem.past:not(.on) .t { color: var(--label2); }
+.bandDetail { flex: 1; min-width: 0; background: var(--paper); border-radius: 12px; box-shadow: var(--shadow-sm); padding: 14px 18px 18px; }
+.detailTop { display: flex; align-items: center; gap: 4px; margin-bottom: 10px; }
+.bandTitle {
+  flex: 1; min-width: 0; font: 600 18px var(--font-display); color: var(--label);
+  background: none; border: 0; outline: none; padding: 4px 6px; margin-left: -6px; border-radius: 6px;
+}
+.bandTitle:hover { background: var(--fill); }
+.bandTitle:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft); }
+.detailTop .total { font: 600 15px var(--font-display); color: var(--label2); font-variant-numeric: tabular-nums; margin-right: 8px; }
+.setItems { display: flex; flex-direction: column; }
+.setRow { display: grid; grid-template-columns: 26px minmax(120px, 1.4fr) 110px 1fr 56px 74px; gap: 8px; align-items: center; min-height: 34px; padding: 2px 0; }
+.setRow + .setRow { box-shadow: inset 0 0.5px 0 var(--sep); }
+.setRow .num { color: var(--label3); text-align: right; font-variant-numeric: tabular-nums; display: flex; justify-content: flex-end; }
+.setRow .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setRow .meta { color: var(--label2); font-size: 11.5px; }
+.setRow .dur { text-align: right; color: var(--label2); font-variant-numeric: tabular-nums; }
+.setRow .pInput { box-shadow: none; background: none; }
+.setRow .pInput:hover { background: var(--fill); }
+.setRow .pInput:focus { background: var(--field); box-shadow: 0 0 0 3px var(--accent-soft), inset 0 0 0 1px var(--accent-line); }
+.setRow .pInput.dur { text-align: right; }
+.setRow.brk { color: var(--label2); }
+.setRow.brk .pInput.name { font-style: italic; color: var(--label2); }
+.setRow .tools { display: flex; justify-content: flex-end; }
+.setAdd { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.setAdd select { width: 240px; }
+.setAdd .btn { display: inline-flex; align-items: center; gap: 6px; }
+.gigCols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.gigSec { margin-top: 12px; }
+.gigSec .secTop { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.gigSec h3 { margin: 0; font: 600 12px var(--font); color: var(--label2); }
+.gigField { display: grid; grid-template-columns: 80px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+.gigField > span:first-child { color: var(--label2); font-size: 12px; }
+.schedRow { display: grid; grid-template-columns: 96px 1fr 22px; gap: 6px; align-items: center; }
+.contactRow { display: grid; grid-template-columns: 1fr 0.8fr 1fr 1.2fr 22px; gap: 4px; align-items: center; }
+.pInput.time { font-variant-numeric: tabular-nums; }
+.lineup { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipBtn {
+  height: 24px; padding: 0 10px; border-radius: 12px; border: 0; font: 12px var(--font);
+  background: var(--fill); color: var(--label2); cursor: default;
+}
+.chipBtn.on { background: var(--accent); color: var(--accent-ink); }
+textarea.pInput.notes { min-height: 90px; resize: vertical; font: 13px var(--font); line-height: 1.45; }
+.bandTable .row.head span { padding-left: 8px; }
+.bandTable .pInput::placeholder, .setRow .pInput::placeholder, .contactRow .pInput::placeholder, .schedRow .pInput::placeholder { color: var(--label3); }
+.bandTable .row:not(:hover) .pInput:not(:focus)::placeholder,
+.setRow:not(:hover) .pInput:not(:focus)::placeholder { color: transparent; }
+.bandTable .row:not(:hover) .pInput:not(:focus):placeholder-shown { box-shadow: none; }
