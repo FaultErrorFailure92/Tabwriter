@@ -6,7 +6,15 @@ The song editor inside Stagecraft is **Tabwriter**: a modern, keyboard-driven ta
 
 Runs as a web app (works offline, installable as a PWA) and as a desktop app for macOS, Windows and Linux ([stagecraft-desktop](https://github.com/FaultErrorFailure92/stagecraft-desktop)).
 
-**Web:** landing page at [faulterrorfailure92.github.io/Tabwriter](https://faulterrorfailure92.github.io/Tabwriter/), the app at [/app/](https://faulterrorfailure92.github.io/Tabwriter/app/).
+## Opening the app
+
+| Where | How |
+| --- | --- |
+| **Web** | [faulterrorfailure92.github.io/Tabwriter/app/](https://faulterrorfailure92.github.io/Tabwriter/app/) – landing page one level up. After renaming the repo to `stagecraft` the address becomes `faulterrorfailure92.github.io/stagecraft/app/`. Installable as an app from the browser (PWA). |
+| **Desktop** (macOS, Windows, Linux) | Download from the [stagecraft-desktop releases](https://github.com/FaultErrorFailure92/stagecraft-desktop/releases), or run it from source there with `npm run setup` once and then `npm run dev`. |
+| **Local development** | `npm run dev` in this repo → [localhost:1420](http://localhost:1420) |
+
+Tabwriter and the band features work without an account. Signing in is only needed to share a band.
 
 ## The workflow
 
@@ -36,11 +44,13 @@ The home screen follows the way a song actually goes (⌘1–5 jumps to a step, 
 
 ### Band
 
-- **Song profile:** phase (idea → writing → arrangement → production → released → live), album, to-dos, sounds and patches per part (e.g. Helix), linked score file.
-- **Idea library:** riffs from the editor selection, voice memos (record or import), text ideas with syllable count, tags and search.
-- **Stage & tech:** signal chain per member, stage plan in metres (drag or exact X/Y), suggested input list and cables, monitor mixes, parts list by owner, packing list, rider.
-- **Setlists:** drag & drop, breaks, total length, duplicate as a variant.
-- **Gigs:** date, venue, schedule, setlist, lineup, contacts, notes; fee, costs and payout per person; day sheet and rider as PDF.
+- **Band:** members with photo and instruments, logo, contact, social media and streaming links, crew and helpers.
+- **Songs:** album, BPM, key, tuning, lyrics, linked score file, recordings and links, ideas (riffs, voice memos, text), band-wide to-do board.
+- **Stage & tech:** signal chain per member, stage plan in metres with 45° rotation, input list, cables, monitor mixes, parts and packing list, technical rider and stage plot (Markdown texts).
+- **Setlists:** drag & drop, breaks, dividers, notes, columns (BPM, key, tuning, length), time target with a warning at ±20 %, new setlist from a template, print/PDF.
+- **Gigs:** schedule, setlist, lineup, crew, contracts and receipts, photo links, presale tracking (incl. import of the old Excel workbook), fee and payout, tours with totals.
+- **Calendar:** gigs, rehearsals and days members are not available; `.ics` export.
+- **Accounts (optional):** sign in with an e-mail code, move a band to the cloud, invite members and guests by link, roles admin / member / guest. Syncing the band data itself is the next step.
 
 ### Files and export
 
@@ -49,7 +59,7 @@ The home screen follows the way a song actually goes (⌘1–5 jumps to a step, 
 - **Export:** `.gp5`, `.gp`, MIDI, WAV, PDF/print, parts (one track per page + lead sheet, ⇧⌘P).
 - **Reaper:** ZIP with one MIDI file per track, click track (WAV), tempo map and section markers.
 - **Band file:** `.stagecraft` (members, songs, setlists, gigs, gear, ideas including voice memos).
-- Data stays local: library, autosave with recovery and band data live in the browser/app storage.
+- Data stays local: library, autosave with recovery and band data live in the browser/app storage. The cloud only holds accounts, bands, roles and invites for now.
 
 ## Quick start
 
@@ -88,6 +98,10 @@ On Windows and Linux, use `Ctrl` instead of `⌘`.
 
 **Desktop releases:** built in [stagecraft-desktop](https://github.com/FaultErrorFailure92/stagecraft-desktop).
 
+**Backend (Supabase):** project in the EU (Ireland). URL and publishable key are in `src/cloud/cloud.ts` (public by design; access is enforced by row level security). The database schema lives in `supabase/migrations/` and is applied in that order. One-time setup in the Supabase dashboard:
+- *Authentication → Emails → Magic Link*: the template must contain `{{ .Token }}`, so users get a 6-digit code instead of a link.
+- Before inviting people outside the Supabase team: set up a custom SMTP sender (the built-in one only mails team members and only a few messages per hour).
+
 ## Project structure
 
 ```
@@ -106,12 +120,14 @@ src/
   gp5writer.ts     GP5 (v5.00) writer incl. chords, lyrics, two voices
   midi.ts, wav.ts, print.ts   exports and printing
   library.ts       recent files + autosave (IndexedDB)
-  band/            Stagecraft: model, members/songs/setlists/gigs UI, ideas, stage & tech, rider
+  band/            Stagecraft: model, band/songs/setlists/gigs UI, ideas, stage & tech, rider, calendar, tours, account UI
+  cloud/           Supabase client: sign-in, bands in the cloud, roles, invites (loaded only when used)
   tauri.ts         desktop bridge: native menu, file associations, updater (used when running inside stagecraft-desktop)
   i18n*.ts         German (keys) / English
 landing/           landing page for GitHub Pages
 tests/             smoke tests (Playwright)
 public/            fonts, soundfont, icons, licenses
+supabase/          database migrations (tables, roles, row level security)
 ```
 
 ## Built with
@@ -124,7 +140,8 @@ Third-party license texts are in `public/licenses/`.
 
 ## Roadmap
 
-- Sync via Nextcloud/WebDAV and a read-only link for the band
+- Sync of band data between devices and members (Supabase)
+- Subscription and free licenses, custom domain and hosting on Cloudflare Pages
 - MIDI input in the macOS app (native plugin)
 - Larger optional soundfont
 - Song folder as library (e.g. iCloud)
