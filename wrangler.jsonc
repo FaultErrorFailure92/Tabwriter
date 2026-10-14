@@ -1,7 +1,7 @@
 // Cloudflare Workers (static assets): serves the build output of `npm run build:pages`
 // landing page at /, the app at /app/
 {
-  "name": "stagecraft",
+  "name": "tabwriter",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist"
