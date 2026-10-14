@@ -50,7 +50,7 @@ The home screen follows the way a song actually goes (⌘1–5 jumps to a step, 
 - **Setlists:** drag & drop, breaks, dividers, notes, columns (BPM, key, tuning, length), time target with a warning at ±20 %, new setlist from a template, print/PDF.
 - **Gigs:** schedule, setlist, lineup, crew, contracts and receipts, photo links, presale tracking (incl. import of the old Excel workbook), fee and payout, tours with totals.
 - **Calendar:** gigs, rehearsals and days members are not available; `.ics` export.
-- **Accounts (optional):** sign in with an e-mail code, move a band to the cloud, invite members and guests by link, roles admin / member / guest. Syncing the band data itself is the next step.
+- **Accounts (optional):** sign in with an e-mail code, move a band to the cloud, invite members and guests by link, roles admin / member / guest. Band data and files sync between devices and members (entry by entry, the later change wins; works offline and catches up later).
 
 ### Files and export
 
@@ -59,7 +59,7 @@ The home screen follows the way a song actually goes (⌘1–5 jumps to a step, 
 - **Export:** `.gp5`, `.gp`, MIDI, WAV, PDF/print, parts (one track per page + lead sheet, ⇧⌘P).
 - **Reaper:** ZIP with one MIDI file per track, click track (WAV), tempo map and section markers.
 - **Band file:** `.stagecraft` (members, songs, setlists, gigs, gear, ideas including voice memos).
-- Data stays local: library, autosave with recovery and band data live in the browser/app storage. The cloud only holds accounts, bands, roles and invites for now.
+- Data stays local: library, autosave with recovery and band data live in the browser/app storage. Bands moved to the cloud are also stored in Supabase and synced.
 
 ## Quick start
 
@@ -121,7 +121,7 @@ src/
   midi.ts, wav.ts, print.ts   exports and printing
   library.ts       recent files + autosave (IndexedDB)
   band/            Stagecraft: model, band/songs/setlists/gigs UI, ideas, stage & tech, rider, calendar, tours, account UI
-  cloud/           Supabase client: sign-in, bands in the cloud, roles, invites (loaded only when used)
+  cloud/           Supabase: sign-in, bands, roles, invites (cloud.ts) and band data sync (sync.ts); loaded only when used
   tauri.ts         desktop bridge: native menu, file associations, updater (used when running inside stagecraft-desktop)
   i18n*.ts         German (keys) / English
 landing/           landing page for GitHub Pages
@@ -140,7 +140,6 @@ Third-party license texts are in `public/licenses/`.
 
 ## Roadmap
 
-- Sync of band data between devices and members (Supabase)
 - Subscription and free licenses, custom domain and hosting on Cloudflare Pages
 - MIDI input in the macOS app (native plugin)
 - Larger optional soundfont

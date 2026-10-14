@@ -525,6 +525,64 @@ await test('Account: sign in with code, band to the cloud, invite link', async (
   eq([name, rows, /#invite=[0-9a-f]{32}$/.test(link), db[0], db[1]], ['Benni', 1, true, true, 'guest'], 'signed in, cloud band, invite');
 });
 
+await test('Sync: two devices share songs, edits, deletions and order', async () => {
+  const r = await page.evaluate(async () => {
+    const M = await import('/src/band/model.ts');
+    const { BandSync, explode, applyRemote } = await import('/src/cloud/sync.ts');
+    // fake server: band_items with a server clock, jsonb-like key reordering
+    const rows = [];
+    let clock = Date.parse('2030-01-01T00:00:00Z');
+    const reorder = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().reverse().map((k) => [k, reorder(v[k])])) : Array.isArray(v) ? v.map(reorder) : v);
+    const from = () => {
+      let f = [], gtv = null, range = [0, 1e9];
+      const api = {
+        select() { return api; }, eq(k, v) { f.push((x) => x[k] === v); return api; }, gt(k, v) { gtv = [k, v]; return api; }, order() { return api; },
+        range(a, b) { range = [a, b]; return api; },
+        upsert(list) {
+          for (const it of list) {
+            const at = rows.findIndex((x) => x.band_id === it.band_id && x.kind === it.kind && x.id === it.id);
+            const row = { ...it, data: reorder(JSON.parse(JSON.stringify(it.data))), updated_at: new Date(clock += 1000).toISOString() };
+            if (at >= 0) rows[at] = row; else rows.push(row);
+          }
+          return Promise.resolve({ error: null });
+        },
+        then(res) {
+          let out = rows.filter((x) => f.every((g) => g(x)) && (!gtv || x[gtv[0]] > gtv[1])).sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+          res({ data: out.slice(range[0], range[1] + 1).map((x) => ({ ...x })), error: null });
+        },
+      };
+      return api;
+    };
+    const client = { from, channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel() {}, storage: { from: () => ({ upload: async () => ({ error: null }), download: async () => ({ data: null, error: { message: 'no' } }) }) } };
+    const mk = (name) => { const b = M.newBand(name); b.cloud = { id: 'B', role: 'member' }; return b; };
+    let A = mk('Band'), B = mk('Band');
+    const host = (get, set) => ({ band: get, changed: () => {}, status: () => {}, canWrite: () => true });
+    const sa = new BandSync('B', host(() => A), { stateKey: 'tA', client });
+    const sb = new BandSync('B', host(() => B), { stateKey: 'tB', client });
+    await sa.reset(); await sb.reset();
+    await sa.start(); await sb.start();
+    const s1 = M.newSong('Eins'), s2 = M.newSong('Zwei');
+    A.songs.push(s1, s2); A.name = 'Riverside';
+    await sa.now(); await sb.now();
+    const step1 = [B.name, B.songs.map((s) => s.title)];
+    B.songs[0].bpm = 133; B.songs.reverse();
+    await sb.now(); await sa.now();
+    const step2 = [A.songs.map((s) => s.title), A.songs.find((s) => s.title === 'Eins').bpm];
+    A.songs = A.songs.filter((s) => s.title !== 'Zwei');
+    await sa.now(); await sb.now();
+    const step3 = B.songs.map((s) => s.title);
+    const before = rows.length; const stamp = rows.map((x) => x.updated_at).join();
+    await sa.now(); await sb.now(); await sa.now();
+    const quiet = rows.map((x) => x.updated_at).join() === stamp;
+    sa.stop(); sb.stop();
+    // pure helpers keep everything
+    const C = mk('X'); C.members.push(M.newMember()); C.gigs.push(M.newGig('2030-01-01'));
+    const D = M.newBand('?'); applyRemote(D, [...explode(C)].map(([k, data]) => ({ kind: k.split('\u0000')[0], id: k.split('\u0000')[1], data })));
+    return [step1, step2, step3, quiet, before, D.members.length, D.gigs.length, D.name];
+  });
+  eq(r, [['Riverside', ['Eins', 'Zwei']], [['Zwei', 'Eins'], 133], ['Eins'], true, r[4], 1, 1, 'X'], 'sync');
+});
+
 await test('No uncaught errors', async () => {
   if (errors.length) throw new Error(errors.join('\n'));
 });

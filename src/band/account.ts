@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { icon } from '../icons';
 import { el, esc, iconBtn, select, save } from './dom';
 import { card, hint, popMenu, wizard, wizField, wizInput, choices, type MenuItem } from './kit';
-import { type Band, newBand } from './model';
+import { type Band } from './model';
 import * as C from '../cloud/cloud';
 
 export interface AccountCtx {
@@ -12,6 +12,12 @@ export interface AccountCtx {
   rerender(): void;
   confirm(m: string): Promise<boolean>;
   flash(m: string): void;
+  /** open a cloud band on this device (data comes from the cloud) */
+  switchTo(b: C.CloudBand): Promise<void>;
+  /** band.cloud changed: start/stop the sync */
+  cloudChanged(): void;
+  syncNow(): Promise<void>;
+  syncLabel(): string;
 }
 
 export const ROLES: [C.Role, string, string][] = [
@@ -81,10 +87,15 @@ export async function signIn(c: AccountCtx, why = ''): Promise<boolean> {
 
 // ---------------- sidebar button + menu ----------------
 
-export function accountButton(c: AccountCtx): HTMLElement {
+export function acctSub(c: AccountCtx): string {
   const a = C.currentAccount();
   const b = c.band();
-  const sub = !a ? t('Anmelden') : b.cloud ? `${roleName(b.cloud.role)} · ${t('in der Cloud')}` : t('Band nur auf diesem Gerät');
+  return !a ? t('Anmelden') : b.cloud ? `${roleName(b.cloud.role)} · ${c.syncLabel() || t('in der Cloud')}` : t('Band nur auf diesem Gerät');
+}
+
+export function accountButton(c: AccountCtx): HTMLElement {
+  const a = C.currentAccount();
+  const sub = acctSub(c);
   const btn = el('button', 'acct' + (a ? ' on' : ''), `<span class="av">${a ? esc(initialsOf(a.name || a.email)) : icon('people', 14)}</span><span><b>${esc(a ? a.name || a.email : t('Lokal'))}</b><small>${esc(sub)}</small></span>`);
   btn.dataset.tip = a ? a.email : t('Anmelden, um die Band zu teilen');
   btn.onclick = () => (a ? accountMenu(btn, c) : void signIn(c).then((ok) => ok && c.rerender()));
@@ -141,9 +152,19 @@ async function showBands(c: AccountCtx) {
     finish: t('Fertig'),
     steps: [{
       title: list.length ? t('Bands in deinem Account') : t('Noch keine Band in deinem Account'),
-      text: t('Der Abgleich der Banddaten zwischen Geräten kommt im nächsten Schritt. Bis dahin liegt eine Band mit ihren Daten auf dem Gerät, auf dem sie angelegt wurde.'),
+      text: list.length > 1 ? t('Auf diesem Gerät ist immer eine Band offen. Tippe eine andere an, um zu ihr zu wechseln – ihre Daten kommen aus der Cloud.') : undefined,
       body: (box) => {
-        for (const x of list) box.appendChild(el('div', 'acctBand' + (x.id === c.band().cloud?.id ? ' on' : ''), `<b>${esc(x.name)}</b><span>${esc(roleName(x.role))}${x.id === c.band().cloud?.id ? ' · ' + esc(t('auf diesem Gerät')) : ''}</span>`));
+        for (const x of list) {
+          const here = x.id === c.band().cloud?.id;
+          const r = el('button', 'acctBand' + (here ? ' on' : ''), `<b>${esc(x.name)}</b><span>${esc(roleName(x.role))}${here ? ' · ' + esc(t('geöffnet')) : ' · ' + esc(t('öffnen'))}</span>`);
+          r.type = 'button';
+          r.disabled = here;
+          r.onclick = () => {
+            (document.querySelector('.wizOverlay .wizFoot .btn.primary') as HTMLButtonElement | null)?.click();
+            void c.switchTo(x);
+          };
+          box.appendChild(r);
+        }
       },
     }],
   });
@@ -172,6 +193,7 @@ export async function toCloud(c: AccountCtx) {
     const id = await C.createCloudBand(b.name, r.me || null);
     b.cloud = { id, role: 'admin' };
     save();
+    c.cloudChanged();
     c.flash(t('„{x}“ ist jetzt in deinem Account.', { x: b.name }));
     c.rerender();
   } catch (e) {
@@ -246,7 +268,7 @@ async function fillAccess(list: HTMLElement, c: AccountCtx) {
         if (!(await c.confirm(m.me ? t('Band in der Cloud verlassen? Die Daten bleiben auf diesem Gerät.') : t('{x} aus der Band entfernen?', { x: m.name })))) return;
         try {
           await C.removeMember(id, m.user_id);
-          if (m.me) { delete b.cloud; save(); }
+          if (m.me) { delete b.cloud; save(); c.cloudChanged(); }
           c.rerender();
         } catch (e) {
           c.flash(errText(e));
@@ -262,6 +284,7 @@ async function fillAccess(list: HTMLElement, c: AccountCtx) {
           await C.removeMember(id, m.user_id);
           delete b.cloud;
           save();
+          c.cloudChanged();
           c.rerender();
         } catch (e) {
           c.flash(errText(e));
@@ -417,13 +440,7 @@ export async function handleInvite(c: AccountCtx) {
     return c.flash(errText(e));
   }
   pending.set('');
-  const b = c.band();
-  if (!b.setup && !b.cloud) {
-    const nb = newBand(inv.band_name);
-    nb.setup = true;
-    nb.cloud = { id: inv.band_id, role: inv.role };
-    c.replaceBand(nb);
-  }
-  c.flash(t('Du bist jetzt in „{x}“. Die Banddaten kommen mit dem Abgleich, der als Nächstes gebaut wird.', { x: inv.band_name }));
+  c.flash(t('Du bist jetzt in „{x}“.', { x: inv.band_name }));
+  await c.switchTo({ id: inv.band_id, name: inv.band_name, role: inv.role });
   c.rerender();
 }

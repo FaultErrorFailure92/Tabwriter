@@ -9,8 +9,9 @@ import { renderStage } from './stage';
 import { riderPrintItems } from './rider';
 import { crewCard, gigCrewCard, renderDocs, renderCalendar, downloadIcs, awayOn } from './gigextra';
 import { rehearsalWizard, nextRehearsal } from './rehearsal';
-import { accountButton, accessCard, catchInviteHash, hasPendingInvite, handleInvite, type AccountCtx } from './account';
-import { initCloud, onAccount, renameCloudBand } from '../cloud/cloud';
+import { accountButton, acctSub, accessCard, catchInviteHash, hasPendingInvite, handleInvite, type AccountCtx } from './account';
+import { initCloud, onAccount, renameCloudBand, currentAccount, type CloudBand } from '../cloud/cloud';
+import { BandSync, type SyncStatus } from '../cloud/sync';
 import { tourWizard, tourOptions, tourSummary, tourOf, NEW_TOUR } from './tour';
 import { renderTickets, printDoorList, importExcel } from './tickets';
 import { renderSongIdeas, collectAudio, restoreAudio, syllables, audioKey, audioDuration } from './ideas';
@@ -92,7 +93,62 @@ let saveTimer = 0;
 
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => void dbPut(DB_KEY, JSON.stringify(band)), 300);
+  saveTimer = window.setTimeout(() => {
+    void dbPut(DB_KEY, JSON.stringify(band));
+    sync?.soon();
+  }, 300);
+}
+
+// ---------------- cloud sync ----------------
+
+let sync: BandSync | null = null;
+let syncId = '';
+let syncState: SyncStatus = 'off';
+
+/** start / stop the sync so it matches the current band and account */
+function restartSync(fresh = false) {
+  const id = band.cloud && currentAccount() ? band.cloud.id : '';
+  if (id === syncId && !fresh) return;
+  sync?.stop();
+  sync = null;
+  syncId = id;
+  if (!id) return;
+  const s = new BandSync(id, {
+    band: () => band,
+    changed: () => {
+      void dbPut(DB_KEY, JSON.stringify(band));
+      if (bandOpen()) render();
+    },
+    status: (st) => {
+      syncState = st;
+      const small = root?.querySelector('.sideFoot .acct small');
+      if (small) small.textContent = acctSub(actx());
+    },
+    canWrite: () => band.cloud?.role !== 'guest',
+  });
+  sync = s;
+  void (fresh ? s.reset() : Promise.resolve()).then(() => s.start()).catch(() => {});
+}
+
+export const syncLabel = (): string => ({ off: '', syncing: t('gleicht ab …'), ok: t('abgeglichen'), offline: t('offline'), error: t('Abgleich fehlgeschlagen') })[syncState];
+
+/** switch the device to another cloud band (data comes from the cloud) */
+async function switchToCloud(cb: CloudBand) {
+  if (band.cloud?.id === cb.id) return;
+  if (band.setup && !band.cloud) {
+    if (!(await host.confirm(t('„{x}“ ist nur auf diesem Gerät gespeichert und wird durch „{y}“ ersetzt. Weiter?', { x: band.name, y: cb.name })))) return;
+    if (await host.confirm(t('Vorher „{x}“ als Datei sichern?', { x: band.name }))) await exportBand();
+  } else if (sync) {
+    await sync.now();
+  }
+  const nb = newBand(cb.name);
+  nb.setup = true;
+  nb.cloud = { id: cb.id, role: cb.role };
+  band = nb;
+  await dbPut(DB_KEY, JSON.stringify(band));
+  restartSync(true);
+  if (!bandOpen()) openBand('home');
+  else render();
 }
 setSaver(save);
 
@@ -116,7 +172,11 @@ export async function initBand(h: BandHost) {
 
 const actx = (): AccountCtx => ({
   band: () => band,
-  replaceBand: (b) => { band = b; save(); },
+  replaceBand: (b) => { band = b; save(); restartSync(true); },
+  switchTo: (cb) => switchToCloud(cb),
+  cloudChanged: () => restartSync(),
+  syncNow: () => sync?.now() ?? Promise.resolve(),
+  syncLabel: () => syncLabel(),
   rerender: () => { if (bandOpen()) render(); },
   confirm: (m) => host.confirm(m),
   flash: (m) => host.flash(m),
@@ -130,7 +190,11 @@ async function startCloud() {
   } catch {
     /* offline: stay local */
   }
-  onAccount(() => { if (bandOpen()) render(); });
+  onAccount(() => {
+    restartSync();
+    if (bandOpen()) render();
+  });
+  restartSync();
   if (hasPendingInvite()) {
     await handleInvite(actx());
     if (bandReady() && !bandOpen()) openBand('members');
@@ -1789,8 +1853,10 @@ export async function bandWizard(replace = false) {
     ],
   });
   if (!r || opened) return;
+  if (sync) await sync.now().catch(() => {});
   const b = newBand(r.name.trim());
   band = b;
+  restartSync();
   for (const m of r.members.filter((x) => x.name.trim())) {
     const nm = newMember();
     nm.name = m.name.trim();
@@ -2105,12 +2171,14 @@ async function importBand() {
     try {
       const raw = JSON.parse(await f.text());
       const b = normalize(raw);
+      delete b.cloud; // a file is a copy: it does not take over a cloud band
       migrate(b);
       if (bandReady() && !(await host.confirm(t('Aktuelle Band-Daten durch „{x}“ ersetzen?', { x: b.name })))) return;
       b.setup = true;
       band = b;
       await restoreAudio(raw.audio);
       save();
+      restartSync();
       host.flash(t('{x} geöffnet', { x: f.name }));
       openBand('home');
     } catch (e: any) {

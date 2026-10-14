@@ -196,3 +196,6 @@ export async function acceptInvite(token: string): Promise<string> {
   fail(error);
   return data as string;
 }
+
+/** the Supabase client (for sync) */
+export const cloudClient = () => sb();
