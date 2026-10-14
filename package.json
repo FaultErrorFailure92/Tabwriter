@@ -5,9 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p . && vite build",
-    "tauri": "tauri",
     "preview": "vite preview",
-    "release": "tauri build --config src-tauri/tauri.release.conf.json",
     "test": "node tests/run.mjs",
     "build:pages": "tsc -p . && vite build --outDir dist/app --emptyOutDir && node -e \"require('fs').cpSync('landing','dist',{recursive:true})\""
   },
@@ -17,7 +15,6 @@
   },
   "devDependencies": {
     "@coderline/alphatab-vite": "^1.8.4",
-    "@tauri-apps/cli": "^2.12.1",
     "playwright": "^1.56.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

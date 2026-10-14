@@ -4,7 +4,7 @@ From the first idea to the stage: write and arrange songs, plan stage and gear, 
 
 The song editor inside Stagecraft is **Tabwriter**: a modern, keyboard-driven tab editor in the spirit of Guitar Pro 5 that opens and saves `.gp5` files.
 
-Runs as a native macOS app (Tauri) and as a web app (works offline, installable as a PWA). The web app also runs on Windows and Linux.
+Runs as a web app (works offline, installable as a PWA) and as a desktop app for macOS, Windows and Linux ([stagecraft-desktop](https://github.com/FaultErrorFailure92/stagecraft-desktop)).
 
 **Web:** landing page at [faulterrorfailure92.github.io/Tabwriter](https://faulterrorfailure92.github.io/Tabwriter/), the app at [/app/](https://faulterrorfailure92.github.io/Tabwriter/app/).
 
@@ -53,13 +53,11 @@ The home screen follows the way a song actually goes (⌘1–5 jumps to a step, 
 
 ## Quick start
 
-Requirements: Node.js 22+. For the desktop app you also need Rust 1.90+ (`rustup update stable`).
+Requirements: Node.js 22+. The desktop apps (macOS, Windows, Linux) live in [stagecraft-desktop](https://github.com/FaultErrorFailure92/stagecraft-desktop), which includes this repo as a submodule.
 
 ```bash
 npm install
 npm run dev            # web app at http://localhost:1420
-npm run tauri dev      # macOS app (development)
-npm run tauri build    # .app / .dmg
 npm run build          # web build into dist/
 npm run build:pages    # GitHub Pages: landing page in dist/, app in dist/app/
 npm test               # smoke tests (first time: npx playwright install chromium)
@@ -88,12 +86,7 @@ On Windows and Linux, use `Ctrl` instead of `⌘`.
 
 **Web (GitHub Pages):** push to `main`. The workflow in `.github/workflows/web.yml` runs `npm run build:pages`: the landing page (`landing/`) goes to the site root, the app to `/app/`. One-time setup: in the repo, go to *Settings → Pages → Source* and choose **GitHub Actions**. Netlify and Cloudflare Pages work too (see `netlify.toml` and `public/_headers`).
 
-**macOS release:** push a tag (`git tag v1.0.0 && git push --tags`). `.github/workflows/release.yml` builds a signed and notarized app and publishes it as a GitHub release, including the update feed. Before your first release:
-- Add your Apple certificate and notarization credentials as repository secrets.
-- Run `npx tauri signer generate` and put the public key in `src-tauri/tauri.conf.json`.
-- Replace `REPLACE_OWNER/REPLACE_REPO` with your repository.
-
-The bundle identifier stays `at.benni.tabwriter` so existing local data is kept.
+**Desktop releases:** built in [stagecraft-desktop](https://github.com/FaultErrorFailure92/stagecraft-desktop).
 
 ## Project structure
 
@@ -114,18 +107,17 @@ src/
   midi.ts, wav.ts, print.ts   exports and printing
   library.ts       recent files + autosave (IndexedDB)
   band/            Stagecraft: model, members/songs/setlists/gigs UI, ideas, stage & tech, rider
-  tauri.ts         native menu, file associations, updater
+  tauri.ts         desktop bridge: native menu, file associations, updater (used when running inside stagecraft-desktop)
   i18n*.ts         German (keys) / English
 landing/           landing page for GitHub Pages
 tests/             smoke tests (Playwright)
-src-tauri/         Tauri 2 shell (Rust)
 public/            fonts, soundfont, icons, licenses
 ```
 
 ## Built with
 
 - [alphaTab](https://alphatab.net): notation rendering, playback, and file import (MPL-2.0)
-- [Tauri 2](https://tauri.app) and [Vite](https://vite.dev) + TypeScript
+- [Vite](https://vite.dev) + TypeScript
 - Bravura music font (SIL OFL) and the Sonivox GM soundfont (Apache 2.0)
 
 Third-party license texts are in `public/licenses/`.

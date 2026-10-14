@@ -43,7 +43,10 @@ hydrateIcons();
 translateDom();
 installTooltips();
 if (isDesktop()) document.body.classList.add('tauri');
-if (isDesktop() && isMac()) document.documentElement.classList.add('vibrancy');
+if (isDesktop() && isMac()) {
+  document.documentElement.classList.add('vibrancy');
+  document.body.classList.add('tauriMac');
+}
 // Windows / Linux: show Ctrl/Alt/Shift instead of the Mac key symbols
 if (!isMac()) {
   const pc = (x: string) => x.replace(/⌃⌘/g, 'Ctrl+Alt+').replace(/⌘/g, 'Ctrl+').replace(/⌥/g, 'Alt+').replace(/⇧/g, 'Shift+').replace(/⌃/g, 'Ctrl+');
