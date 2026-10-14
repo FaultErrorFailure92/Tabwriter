@@ -448,6 +448,83 @@ await test('Markdown, 45° rotation, social links, feedback', async () => {
   eq(r, [true, true, true, true, true, true, true, true], 'md, rotate, links, custom');
 });
 
+// in-memory stand-in for Supabase (the test machine has no network)
+const fakeCloud = () => page.evaluate(async () => {
+  const C = await import('/src/cloud/cloud.ts');
+  const db = { profiles: [], bands: [], band_members: [], invites: [] };
+  let session = null;
+  const me = { id: 'u-me', email: 'benni@test.at' };
+  const q = (table) => {
+    let rows = () => db[table];
+    const filters = [];
+    let op = 'select', patch = null, single = false;
+    const api = {
+      select() { return api; },
+      eq(k, v) { filters.push((r) => r[k] === v); return api; },
+      in(k, v) { filters.push((r) => v.includes(r[k])); return api; },
+      is(k, v) { filters.push((r) => (r[k] ?? null) === v); return api; },
+      gt() { return api; },
+      order() { return api; },
+      update(p) { op = 'update'; patch = p; return api; },
+      delete() { op = 'delete'; return api; },
+      maybeSingle() { single = true; return api; },
+      then(res) {
+        const hit = rows().filter((r) => filters.every((f) => f(r)));
+        if (op === 'update') hit.forEach((r) => Object.assign(r, patch));
+        if (op === 'delete') db[table] = db[table].filter((r) => !hit.includes(r));
+        let data = hit.map((r) => (table === 'band_members' ? { ...r, bands: db.bands.find((b) => b.id === r.band_id) } : r));
+        res({ data: single ? data[0] ?? null : data, error: null });
+      },
+    };
+    return api;
+  };
+  window.__cloudDb = db;
+  C.setClient({
+    auth: {
+      signInWithOtp: async () => ({ error: null }),
+      verifyOtp: async ({ token }) => {
+        if (token !== '123456') return { data: {}, error: { message: 'bad code' } };
+        session = { user: me };
+        if (!db.profiles.length) db.profiles.push({ id: me.id, name: 'Benni' });
+        return { data: { session }, error: null };
+      },
+      getSession: async () => ({ data: { session } }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+      signOut: async () => { session = null; return { error: null }; },
+    },
+    from: q,
+    rpc: async (fn, a) => {
+      if (fn === 'create_band') { const id = 'b-1'; db.bands.push({ id, name: a.band_name }); db.band_members.push({ band_id: id, user_id: me.id, role: 'admin', member_ref: a.my_member_ref }); return { data: id, error: null }; }
+      if (fn === 'create_invite') { const token = 'ab'.repeat(16); db.invites.push({ id: 'i-1', band_id: a.band, token, role: a.invite_role, label: a.invite_label, used_at: null }); return { data: token, error: null }; }
+      return { data: null, error: { message: 'unknown rpc' } };
+    },
+  });
+});
+
+await test('Account: sign in with code, band to the cloud, invite link', async () => {
+  await bandWizard('Testband', [['Kim', 'b4']]);
+  await fakeCloud();
+  await page.click('.sideFoot .acct');
+  await page.fill('.wizBody input', 'benni@test.at');
+  await page.keyboard.press('Enter');
+  await page.fill('.wizBody input', '123456');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('.sideFoot .acct.on');
+  const name = await page.textContent('.sideFoot .acct b');
+  await page.keyboard.press('Meta+1');
+  await page.click('.accessCard .btn');
+  await page.selectOption('.wizBody select', { label: 'Kim' });
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForSelector('.accessRow');
+  const rows = await page.$$eval('.accessRow', (r) => r.length);
+  await page.click('.accessCard .tb.add');
+  await page.click('.wizChoice:nth-child(3)');
+  await page.click('.wizFoot .btn.primary');
+  const link = await page.inputValue('.wizBody input');
+  const db = await page.evaluate(() => [window.__cloudDb.band_members[0].member_ref !== null, window.__cloudDb.invites[0].role]);
+  eq([name, rows, /#invite=[0-9a-f]{32}$/.test(link), db[0], db[1]], ['Benni', 1, true, true, 'guest'], 'signed in, cloud band, invite');
+});
+
 await test('No uncaught errors', async () => {
   if (errors.length) throw new Error(errors.join('\n'));
 });

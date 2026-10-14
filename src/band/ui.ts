@@ -9,6 +9,8 @@ import { renderStage } from './stage';
 import { riderPrintItems } from './rider';
 import { crewCard, gigCrewCard, renderDocs, renderCalendar, downloadIcs, awayOn } from './gigextra';
 import { rehearsalWizard, nextRehearsal } from './rehearsal';
+import { accountButton, accessCard, catchInviteHash, hasPendingInvite, handleInvite, type AccountCtx } from './account';
+import { initCloud, onAccount, renameCloudBand } from '../cloud/cloud';
 import { tourWizard, tourOptions, tourSummary, tourOf, NEW_TOUR } from './tour';
 import { renderTickets, printDoorList, importExcel } from './tickets';
 import { renderSongIdeas, collectAudio, restoreAudio, syllables, audioKey, audioDuration } from './ideas';
@@ -109,6 +111,30 @@ export async function initBand(h: BandHost) {
       band = newBand(t('Meine Band'));
     }
   } else band = newBand(t('Meine Band'));
+  void startCloud();
+}
+
+const actx = (): AccountCtx => ({
+  band: () => band,
+  replaceBand: (b) => { band = b; save(); },
+  rerender: () => { if (bandOpen()) render(); },
+  confirm: (m) => host.confirm(m),
+  flash: (m) => host.flash(m),
+});
+
+/** restore the session, react to sign-in/out, run a pending invite (#invite=… in the address) */
+async function startCloud() {
+  catchInviteHash();
+  try {
+    await initCloud();
+  } catch {
+    /* offline: stay local */
+  }
+  onAccount(() => { if (bandOpen()) render(); });
+  if (hasPendingInvite()) {
+    await handleInvite(actx());
+    if (bandReady() && !bandOpen()) openBand('members');
+  }
 }
 
 /** a band exists -> the app runs as Stagecraft; otherwise only Tabwriter */
@@ -219,6 +245,9 @@ function mobileHead(): HTMLElement {
   sw.onclick = () => bandMenu(sw);
   h.appendChild(sw);
   h.appendChild(el('span', 'spacer'));
+  const ab = accountButton(actx());
+  ab.classList.add('mAcct');
+  h.appendChild(ab);
   h.appendChild(iconBtn('comment', t('Feedback geben'), () => host.feedback(areaName()), 'tbtn'));
   if (host.hasSong()) {
     const ed = iconBtn('pencil', t('Zurück in den Editor (Esc)'), () => host.editor(), 'tbtn');
@@ -256,11 +285,8 @@ function sidebar(): HTMLElement {
     }
   });
   side.appendChild(el('span', 'spacer'));
-  // account: reserved for the coming account system
-  const acct = el('button', 'acct', `<span class="av">${icon('people', 14)}</span><span><b>${esc(t('Lokal'))}</b><small>${esc(t('Anmelden – bald verfügbar'))}</small></span>`);
-  acct.onclick = () => host.flash(t('Accounts kommen bald. Bis dahin bleiben alle Daten auf diesem Gerät.'));
   const foot = el('div', 'sideFoot');
-  foot.appendChild(acct);
+  foot.appendChild(accountButton(actx()));
   foot.appendChild(iconBtn('comment', t('Feedback geben'), () => host.feedback(areaName()), 'tbtn feedbackBtn'));
   side.appendChild(foot);
   return side;
@@ -422,10 +448,14 @@ function renderMembers(main: HTMLElement) {
     render();
   };
   c.appendChild(logo);
-  row(c, t('Name'), input(band, 'name', t('Name der Band'), () => {
+  const nameIn = input(band, 'name', t('Name der Band'), () => {
     const b = root.querySelector('.bandSw b');
     if (b) b.textContent = band.name || t('Band');
-  }));
+  });
+  nameIn.addEventListener('change', () => {
+    if (band.cloud?.role === 'admin' && band.name.trim()) void renameCloudBand(band.cloud.id, band.name.trim()).catch(() => {});
+  });
+  row(c, t('Name'), nameIn);
   const k = card(left, t('Kontakt'));
   row(k, t('E-Mail'), input(band.contact, 'email', 'band@…', undefined, 'pInput', 'email'));
   row(k, t('Telefon'), input(band.contact, 'phone', '+43 …'));
@@ -437,6 +467,7 @@ function renderMembers(main: HTMLElement) {
   const mc = card(right, t('Mitglieder'));
   if (!band.members.length) hint(mc, t('Noch keine Mitglieder.'));
   for (const m of band.members) mc.appendChild(memberRow(m));
+  accessCard(right, actx());
   crewCard(right, ctx());
 }
 

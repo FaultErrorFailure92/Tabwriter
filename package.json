@@ -11,7 +11,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@coderline/alphatab": "^1.8.4"
+    "@coderline/alphatab": "^1.8.4",
+    "@supabase/supabase-js": "^2.117.3"
   },
   "devDependencies": {
     "@coderline/alphatab-vite": "^1.8.4",

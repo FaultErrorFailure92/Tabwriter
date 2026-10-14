@@ -448,6 +448,8 @@ export interface Band {
   ideas: Idea[];
   /** set up via the wizard or opened from a file; without it the app runs as plain Tabwriter */
   setup?: boolean;
+  /** set once the band lives in the cloud (Supabase): bands.id and my role there */
+  cloud?: { id: string; role: 'admin' | 'member' | 'guest' };
   logo?: string;
   contact: BandContact;
   /** to-dos that belong to no song */
@@ -585,6 +587,7 @@ export function normalize(d: any): Band {
   b.links = d.links ?? [];
   b.tours = d.tours ?? [];
   b.rehearsals = d.rehearsals ?? [];
+  if (d.cloud?.id) b.cloud = d.cloud;
   b.gigs = (d.gigs ?? []).map((g: Gig) => ({ ...g, money: { ...newMoney(), ...(g.money ?? {}) }, tickets: { ...newTickets(), ...(g.tickets ?? {}) }, crew: g.crew ?? [], docs: g.docs ?? [], photos: g.photos ?? [] }));
   b.ideas = (d.ideas ?? []).map((x: Idea) => ({ ...newIdea(x.kind ?? 'text'), ...x, tags: x.tags ?? [] }));
   const g = d.gear ?? {};
