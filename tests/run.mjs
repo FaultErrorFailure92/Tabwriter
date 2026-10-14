@@ -493,9 +493,12 @@ const fakeCloud = () => page.evaluate(async () => {
       signOut: async () => { session = null; return { error: null }; },
     },
     from: q,
+    storage: { from: () => ({ list: async () => ({ data: [] }), remove: async () => ({ error: null }) }) },
     rpc: async (fn, a) => {
       if (fn === 'create_band') { const id = 'b-1'; db.bands.push({ id, name: a.band_name }); db.band_members.push({ band_id: id, user_id: me.id, role: 'admin', member_ref: a.my_member_ref }); return { data: id, error: null }; }
       if (fn === 'create_invite') { const token = 'ab'.repeat(16); db.invites.push({ id: 'i-1', band_id: a.band, token, role: a.invite_role, label: a.invite_label, used_at: null }); return { data: token, error: null }; }
+      if (fn === 'account_check') return { data: db.band_members.filter((m) => m.user_id === me.id).map((m) => ({ band_id: m.band_id, band_name: db.bands.find((b) => b.id === m.band_id)?.name, others: db.band_members.filter((o) => o.band_id === m.band_id && o.user_id !== me.id).length, other_admins: 0, my_role: m.role })), error: null };
+      if (fn === 'delete_my_account') { db.band_members = db.band_members.filter((m) => m.user_id !== me.id); db.bands = []; window.__deleted = true; return { data: null, error: null }; }
       return { data: null, error: { message: 'unknown rpc' } };
     },
   });
@@ -523,6 +526,17 @@ await test('Account: sign in with code, band to the cloud, invite link', async (
   const link = await page.inputValue('.wizBody input');
   const db = await page.evaluate(() => [window.__cloudDb.band_members[0].member_ref !== null, window.__cloudDb.invites[0].role]);
   eq([name, rows, /#invite=[0-9a-f]{32}$/.test(link), db[0], db[1]], ['Benni', 1, true, true, 'guest'], 'signed in, cloud band, invite');
+  // delete the account again
+  await page.click('.wizFoot .btn.primary');
+  await page.click('.sideFoot .acct');
+  await page.click('#kitPop button:has-text("Account & Daten")');
+  await page.click('.wizChoice:nth-child(2)');
+  await page.click('.wizFoot .btn.primary');
+  await page.fill('.wizBody input', 'benni@test.at');
+  await page.click('.wizFoot .btn.primary');
+  await page.waitForSelector('.sideFoot .acct:not(.on)');
+  const gone = await page.evaluate(() => [window.__deleted === true, document.querySelector('.sideFoot .acct small')?.textContent]);
+  eq(gone, [true, 'Anmelden'], 'account deleted, local band kept');
 });
 
 await test('Sync: two devices share songs, edits, deletions and order', async () => {

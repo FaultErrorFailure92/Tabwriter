@@ -5,6 +5,7 @@ import { el, esc, iconBtn, select, save } from './dom';
 import { card, hint, popMenu, wizard, wizField, wizInput, choices, type MenuItem } from './kit';
 import { type Band } from './model';
 import * as C from '../cloud/cloud';
+import { saveFile } from '../io';
 
 export interface AccountCtx {
   band(): Band;
@@ -113,6 +114,7 @@ function accountMenu(anchor: HTMLElement, c: AccountCtx) {
   if (!b.cloud && b.setup) items.push({ icon: 'upload', label: t('Band in die Cloud übernehmen …'), fn: () => void toCloud(c) });
   items.push({ icon: 'people', label: t('Einladung annehmen …'), fn: () => void pasteInvite(c) });
   items.push({ icon: 'list', label: t('Meine Bands …'), fn: () => void showBands(c) });
+  items.push({ icon: 'gear', label: t('Account & Daten …'), fn: () => void accountData(c) });
   items.push('sep', { icon: 'xmark', label: t('Abmelden'), fn: async () => { await C.signOut(); c.flash(t('Abgemeldet. Deine Daten bleiben auf diesem Gerät.')); c.rerender(); } });
   popMenu(anchor, items);
 }
@@ -443,4 +445,76 @@ export async function handleInvite(c: AccountCtx) {
   c.flash(t('Du bist jetzt in „{x}“.', { x: inv.band_name }));
   await c.switchTo({ id: inv.band_id, name: inv.band_name, role: inv.role });
   c.rerender();
+}
+
+// ---------------- account & data (GDPR) ----------------
+
+async function accountData(c: AccountCtx) {
+  const a = C.currentAccount();
+  if (!a) return;
+  let bands: C.AccountBand[] = [];
+  try {
+    bands = await C.accountCheck();
+  } catch (e) {
+    return c.flash(errText(e));
+  }
+  const blocked = bands.filter((b) => b.my_role === 'admin' && b.others > 0 && b.other_admins === 0);
+  const alone = bands.filter((b) => b.others === 0);
+  const r = await wizard<{ act: 'export' | 'delete'; confirm: string }>({
+    title: t('Account & Daten'),
+    state: { act: 'export', confirm: '' },
+    finish: t('Weiter'),
+    steps: [
+      {
+        title: a.email,
+        text: t('Deine Daten auf diesem Gerät bleiben in jedem Fall erhalten.'),
+        body: (box, s, redraw) => {
+          choices<'export' | 'delete'>(box, [
+            { k: 'export', icon: 'save', label: t('Meine Daten herunterladen'), sub: t('Account, Bands und Banddaten aus der Cloud als JSON-Datei') },
+            { k: 'delete', icon: 'trash', label: t('Account löschen'), sub: t('Endgültig, ohne Wiederherstellung') },
+          ], s.act, (k) => { s.act = k; redraw(); });
+        },
+      },
+      {
+        title: t('Account wirklich löschen?'),
+        skip: (s) => s.act !== 'delete',
+        ok: (s) => !blocked.length && s.confirm.trim().toLowerCase() === a.email.toLowerCase(),
+        body: (box, s, redraw) => {
+          if (blocked.length) {
+            box.appendChild(el('p', 'wizText warn', esc(t('Du bist der einzige Admin in: {x}. Gib dort zuerst jemand anderem die Admin-Rolle (Band → Zugang).', { x: blocked.map((b) => b.band_name).join(', ') }))));
+            return;
+          }
+          const lines = [t('Dein Account und dein Name werden gelöscht.'), t('Du wirst aus allen Bands entfernt.')];
+          if (alone.length) lines.push(t('Bands, in denen du allein bist, werden mit allen Daten und Dateien in der Cloud gelöscht: {x}', { x: alone.map((b) => b.band_name).join(', ') }));
+          box.appendChild(el('ul', 'wizList', lines.map((l) => `<li>${esc(l)}</li>`).join('')));
+          wizField(box, t('Zur Bestätigung deine E-Mail eingeben'), wizInput(s.confirm, a.email, (v) => { s.confirm = v; redraw(); }, 'email'));
+        },
+      },
+    ],
+  });
+  if (!r) return;
+  if (r.act === 'export') {
+    try {
+      const data = await C.myData();
+      const res = await saveFile(`stagecraft-daten-${new Date().toISOString().slice(0, 10)}.json`, new TextEncoder().encode(JSON.stringify(data, null, 2)), undefined, { desc: 'JSON', ext: 'json', mime: 'application/json' });
+      if (res) c.flash(t('Gespeichert: {x}', { x: res.name }));
+    } catch (e) {
+      c.flash(errText(e));
+    }
+    return;
+  }
+  try {
+    await c.syncNow().catch(() => {});
+    await C.deleteAccount();
+    const b = c.band();
+    if (b.cloud) {
+      delete b.cloud;
+      save();
+    }
+    c.cloudChanged();
+    c.flash(t('Account gelöscht. Deine Daten auf diesem Gerät sind noch da.'));
+    c.rerender();
+  } catch (e) {
+    c.flash(errText(e));
+  }
 }

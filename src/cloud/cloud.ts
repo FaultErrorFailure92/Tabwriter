@@ -199,3 +199,42 @@ export async function acceptInvite(token: string): Promise<string> {
 
 /** the Supabase client (for sync) */
 export const cloudClient = () => sb();
+
+export interface AccountBand { band_id: string; band_name: string; others: number; other_admins: number; my_role: Role }
+
+/** my bands and whether deleting the account is possible */
+export async function accountCheck(): Promise<AccountBand[]> {
+  const c = await sb();
+  const { data, error } = await c.rpc('account_check');
+  fail(error);
+  return (data ?? []) as AccountBand[];
+}
+
+/** everything the cloud stores about me (GDPR export) */
+export async function myData(): Promise<unknown> {
+  const c = await sb();
+  const bands = await accountCheck();
+  const out: Record<string, unknown> = { exported: new Date().toISOString(), account, bands: [] as unknown[] };
+  for (const b of bands) {
+    const { data } = await c.from('band_items').select('kind, id, data, deleted, updated_at').eq('band_id', b.band_id);
+    (out.bands as unknown[]).push({ id: b.band_id, name: b.band_name, role: b.my_role, items: (data ?? []).filter((x: { deleted: boolean }) => !x.deleted) });
+  }
+  return out;
+}
+
+/** delete my account; bands where I am alone go with it (incl. their files) */
+export async function deleteAccount() {
+  const c = await sb();
+  const bands = await accountCheck();
+  const blocked = bands.filter((b) => b.my_role === 'admin' && b.others > 0 && b.other_admins === 0);
+  if (blocked.length) throw new Error(`Gib zuerst jemand anderem die Admin-Rolle in: ${blocked.map((b) => b.band_name).join(', ')}`);
+  for (const b of bands.filter((x) => x.others === 0)) {
+    const { data } = await c.storage.from('band-files').list(b.band_id, { limit: 1000 });
+    const names = (data ?? []).map((f) => `${b.band_id}/${f.name}`);
+    if (names.length) await c.storage.from('band-files').remove(names);
+  }
+  const { error } = await c.rpc('delete_my_account');
+  fail(error);
+  await c.auth.signOut().catch(() => {});
+  await applySession(null);
+}
