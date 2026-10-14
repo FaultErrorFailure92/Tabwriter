@@ -1350,4 +1350,8 @@ export const EN: Record<string, string> = {
   "Endgültig, ohne Wiederherstellung": "Permanent, cannot be undone",
   "Meine Daten herunterladen": "Download my data",
   "Zur Bestätigung deine E-Mail eingeben": "Type your e-mail to confirm",
+  "Datenschutzerklärung": "Privacy policy",
+  "Mit der Anmeldung speichern wir deine E-Mail und die Banddaten, die du teilst, in der EU.": "When you sign in, we store your e-mail and the band data you share in the EU.",
+  "Spotify-Player laden": "Load Spotify player",
+  "Lädt den Player von Spotify (dabei werden Daten an Spotify übertragen)": "Loads the Spotify player (this sends data to Spotify)",
 };

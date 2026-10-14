@@ -6,6 +6,7 @@ import { card, hint, popMenu, wizard, wizField, wizInput, choices, type MenuItem
 import { type Band } from './model';
 import * as C from '../cloud/cloud';
 import { saveFile } from '../io';
+import { openLegal } from '../legal';
 
 export interface AccountCtx {
   band(): Band;
@@ -46,7 +47,12 @@ export async function signIn(c: AccountCtx, why = ''): Promise<boolean> {
       title: t('Mit deiner E-Mail anmelden'),
       text: why || t('Du bekommst einen 6-stelligen Code per Mail. Ohne Passwort. Beim ersten Mal wird dein Account automatisch angelegt.'),
       ok: (s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s.email.trim()),
-      body: (box, s, redraw) => wizField(box, t('E-Mail'), wizInput(s.email, 'name@beispiel.at', (v) => { s.email = v; redraw(); }, 'email')),
+      body: (box, s, redraw) => {
+        wizField(box, t('E-Mail'), wizInput(s.email, 'name@beispiel.at', (v) => { s.email = v; redraw(); }, 'email'));
+        const p = el('p', 'wizText small', `${esc(t('Mit der Anmeldung speichern wir deine E-Mail und die Banddaten, die du teilst, in der EU.'))} <a href="#datenschutz">${esc(t('Datenschutzerklärung'))}</a>`);
+        p.querySelector('a')!.onclick = (e) => { e.preventDefault(); openLegal('datenschutz'); };
+        box.appendChild(p);
+      },
     }],
   });
   if (!a) return false;

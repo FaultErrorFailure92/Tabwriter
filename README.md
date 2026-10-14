@@ -102,6 +102,8 @@ On Windows and Linux, use `Ctrl` instead of `⌘`.
 - *Authentication → Emails → Magic Link*: the template must contain `{{ .Token }}`, so users get a 6-digit code instead of a link.
 - Before inviting people outside the Supabase team: set up a custom SMTP sender (the built-in one only mails team members and only a few messages per hour).
 
+**Legal:** Impressum and privacy policy live in `src/legal.ts` (German, opened via `#impressum` / `#datenschutz` and from *About*). Fill in address and e-mail in `LEGAL` before going public. No cookie banner is needed: the app only stores what it needs to work and uses no tracking.
+
 ## Project structure
 
 ```

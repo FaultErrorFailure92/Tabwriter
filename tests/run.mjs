@@ -597,6 +597,18 @@ await test('Sync: two devices share songs, edits, deletions and order', async ()
   eq(r, [['Riverside', ['Eins', 'Zwei']], [['Zwei', 'Eins'], 133], ['Eins'], true, r[4], 1, 1, 'X'], 'sync');
 });
 
+await test('Impressum and privacy policy open from the address and from About', async () => {
+  await page.goto(url + '#datenschutz');
+  await page.waitForSelector('.legalBody h4');
+  const h = await page.textContent('.legalBody h4');
+  const ai = await page.evaluate(() => document.querySelector('.legalBody').textContent.includes('100 % mit künstlicher Intelligenz'));
+  await page.click('.card.legal .row .btn:not(.primary)');
+  const h2 = await page.textContent('.legalBody h4');
+  await page.keyboard.press('Escape');
+  const gone = await page.evaluate(() => !document.querySelector('.legalOverlay') && location.hash === '');
+  eq([h, ai, h2, gone], ['Datenschutzerklärung', true, 'Impressum', true], 'legal pages');
+});
+
 await test('No uncaught errors', async () => {
   if (errors.length) throw new Error(errors.join('\n'));
 });

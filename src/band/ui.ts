@@ -924,11 +924,16 @@ function mediaCard(parent: HTMLElement, s: Song) {
       r.appendChild(top);
       const emb = spotifyEmbed(m.url);
       if (emb) {
-        const f = el('iframe', 'spotify');
-        f.src = emb;
-        f.loading = 'lazy';
-        f.allow = 'encrypted-media';
-        r.appendChild(f);
+        // privacy: Spotify only gets contacted after a click
+        const load = el('button', 'btn small spotifyLoad', `${icon('play', 12)}<span>${esc(t('Spotify-Player laden'))}</span>`);
+        load.dataset.tip = t('Lädt den Player von Spotify (dabei werden Daten an Spotify übertragen)');
+        load.onclick = () => {
+          const f = el('iframe', 'spotify');
+          f.src = emb;
+          f.allow = 'encrypted-media';
+          load.replaceWith(f);
+        };
+        r.appendChild(load);
       }
     } else {
       const top = el('div', 'mediaTop');

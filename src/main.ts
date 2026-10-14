@@ -8,6 +8,7 @@ import { createEmptyScore, PRESETS, DRUM_LANES, getTempo, setTempo, snapshot, re
 import { pickFile, readDropped, saveFile, readPath, isTauri, GP5, GP7, MIDI, WAV, TABW, ZIP } from './io';
 import * as A from './arrangement';
 import { openFeedback, routeExternalLinks } from './feedback';
+import { openLegal, legalFromHash } from './legal';
 import { initBand, openBand, closeBand, bandOpen, STEPS, bandReady as hasBand, bandWizard, songSaved, bandPeople, type BandTab, type ScoreInfo } from './band/ui';
 import { barTicks } from './model';
 import { renderLeadSheet } from './leadsheet';
@@ -2399,6 +2400,8 @@ $('libOpen').onclick = () => openSong();
 $('libClose').onclick = () => closeLibrary();
 $('libFeedback').onclick = () => run('feedback');
 routeExternalLinks();
+legalFromHash();
+window.addEventListener('hashchange', legalFromHash);
 $('homeBtn').onclick = () => { $('homeBtn').blur(); openLibrary(); };
 
 /** start screen without a band: one entry to set up Stagecraft; Tabwriter works without it */
@@ -2662,6 +2665,8 @@ function openAbout() {
   $('aboutVersion').textContent = t('Version {x}', { x: __APP_VERSION__ });
   const close = modal('aboutDlg');
   $('aboutClose').onclick = close;
+  $('aboutImpressum').onclick = () => { close(); openLegal('impressum'); };
+  $('aboutPrivacy').onclick = () => { close(); openLegal('datenschutz'); };
 }
 
 function openOnboarding() {
